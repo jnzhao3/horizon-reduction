@@ -12,7 +12,7 @@ from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
-from envs.env_utils import make_env_and_datasets
+# from envs.env_utils import make_env_and_datasets
 from utils.datasets import Dataset, GCDataset, HGCDataset
 from utils.evaluation import evaluate
 from utils.flax_utils import restore_agent, save_agent
@@ -40,16 +40,66 @@ flags.DEFINE_float('eval_temperature', 0, 'Actor temperature for evaluation.')
 flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.')
 flags.DEFINE_integer('video_episodes', 1, 'Number of video episodes for each task.')
 flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
+flags.DEFINE_bool('use_wandb', True, 'Use Weights & Biases for logging.')
 
 config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
+
+import numpy as np
+import ogbench
+
+from utils.datasets import Dataset
+
+
+def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_env=None):
+    """Make OGBench environment and datasets.
+
+    Args:
+        dataset_name: Name of the environment (dataset).
+        dataset_path: Path to the dataset file.
+        dataset_only: Whether to return only the datasets.
+        cur_env: Current environment (only used when `dataset_only` is True).
+
+    Returns:
+        A tuple of the environment (if `dataset_only` is False), training dataset, and validation dataset.
+    """
+    if dataset_only:
+        train_dataset, val_dataset = ogbench.make_env_and_datasets(
+            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env
+        )
+    else:
+        env, train_dataset, val_dataset = ogbench.make_env_and_datasets(
+            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env
+        )
+    train_dataset = Dataset.create(**train_dataset)
+    val_dataset = Dataset.create(**val_dataset)
+
+    # Clip dataset actions.
+    eps = 1e-5
+    train_dataset = train_dataset.copy(
+        add_or_replace=dict(actions=np.clip(train_dataset['actions'], -1 + eps, 1 - eps))
+    )
+    val_dataset = val_dataset.copy(add_or_replace=dict(actions=np.clip(val_dataset['actions'], -1 + eps, 1 - eps)))
+
+    if dataset_only:
+        return train_dataset, val_dataset
+    else:
+        env.reset()
+        return env, train_dataset, val_dataset
 
 
 def main(_):
     # Set up logger.
     exp_name = get_exp_name(FLAGS.seed)
-    setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
+    if FLAGS.use_wandb:
+        setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
+    else:
+        project_name = 'horizon_reduction'
+        run_group = 'no_wandb'
 
-    FLAGS.save_dir = os.path.join(FLAGS.save_dir, wandb.run.project, FLAGS.run_group, exp_name)
+    if FLAGS.use_wandb:
+        FLAGS.save_dir = os.path.join(FLAGS.save_dir, wandb.run.project, FLAGS.run_group, exp_name)
+    else:
+        FLAGS.save_dir = os.path.join(FLAGS.save_dir, project_name, run_group, exp_name)
     os.makedirs(FLAGS.save_dir, exist_ok=True)
     flag_dict = get_flag_dict()
     with open(os.path.join(FLAGS.save_dir, 'flags.json'), 'w') as f:
@@ -113,7 +163,8 @@ def main(_):
             train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
             train_metrics['time/total_time'] = time.time() - first_time
             last_time = time.time()
-            wandb.log(train_metrics, step=i)
+            if FLAGS.use_wandb:
+                wandb.log(train_metrics, step=i)
             train_logger.log(train_metrics, step=i)
 
         # Evaluate agent.
@@ -150,10 +201,14 @@ def main(_):
                 eval_metrics[f'evaluation/overall_{k}'] = np.mean(v)
 
             if FLAGS.video_episodes > 0:
-                video = get_wandb_video(renders=renders, n_cols=5)
-                eval_metrics['video'] = video
+                if FLAGS.use_wandb:
+                    video = get_wandb_video(renders=renders, n_cols=5)
+                    eval_metrics['video'] = video
+                else:
+                    eval_metrics['video'] = None
 
-            wandb.log(eval_metrics, step=i)
+            if FLAGS.use_wandb:
+                wandb.log(eval_metrics, step=i)
             eval_logger.log(eval_metrics, step=i)
 
         # Save agent.

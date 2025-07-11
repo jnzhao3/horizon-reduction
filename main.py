@@ -89,7 +89,7 @@ def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_en
 
 def main(_):
     # Set up logger.
-    exp_name = get_exp_name(FLAGS.seed)
+    exp_name = get_exp_name(FLAGS.seed, config=FLAGS)
     if FLAGS.use_wandb:
         setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
     else:

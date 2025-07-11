@@ -37,15 +37,21 @@ class CsvLogger:
             self.file.close()
 
 
-def get_exp_name(seed):
+def get_exp_name(seed, config=None):
     """Return the experiment name."""
     exp_name = ''
     exp_name += f'sd{seed:03d}_'
+    if config:
+        exp_name += f'{hash(config)}_'
     if 'SLURM_JOB_ID' in os.environ:
         exp_name += f's_{os.environ["SLURM_JOB_ID"]}.'
     if 'SLURM_PROCID' in os.environ:
         exp_name += f'{os.environ["SLURM_PROCID"]}.'
-    exp_name += f'{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    if 'SLURM_ARRAY_JOB_ID' in os.environ:
+        exp_name += f'{os.environ["SLURM_ARRAY_JOB_ID"]}.'
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        exp_name += f'{os.environ["SLURM_ARRAY_TASK_ID"]}.'
+    exp_name += f'{datetime.now().strftime("%Y%m%d_%H%M%S.%f")[:-3]}'
 
     return exp_name
 

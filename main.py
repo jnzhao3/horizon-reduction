@@ -41,6 +41,8 @@ flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.
 flags.DEFINE_integer('video_episodes', 1, 'Number of video episodes for each task.')
 flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
 flags.DEFINE_bool('use_wandb', True, 'Use Weights & Biases for logging.')
+flags.DEFINE_bool('bfn', False, 'whether of not to use best of n')
+flags.DEFINE_integer('num_actions', 8, 'the number of actions to sample from')
 
 config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
 
@@ -107,6 +109,11 @@ def main(_):
 
     # Set up environment and datasets.
     config = FLAGS.agent
+
+    if FLAGS.bfn == True:
+        config['agent_type'] = 'best-of-n'
+        config['num_actions'] = FLAGS.num_actions
+
     if FLAGS.dataset_dir is None:
         datasets = [None]
     else:

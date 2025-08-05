@@ -152,6 +152,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
     @jax.jit
     def update(self, batch):
         """Update the agent and return a new agent with information dictionary."""
+
         new_rng, rng = jax.random.split(self.rng)
 
         def loss_fn(grad_params):
@@ -171,6 +172,13 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         temperature=1.0,
     ):
         """Sample actions from the one-step policy."""
+
+        if self.config['actor_type'] == 'best-of-n':
+            # return self.best_of_n(observations, self.config['num_actions'], seed)
+            return self.best_of_n(observations=observations, goals=goals, seed=seed)
+        
+        mult_goals = goals.ndim > 1 and observations.ndim == 1
+
         action_seed, noise_seed = jax.random.split(seed)
         actions = jax.random.normal(
             action_seed,
@@ -179,9 +187,110 @@ class GCFQLAgent(flax.struct.PyTreeNode):
                 self.config['action_dim'],
             ),
         )
+
+        if mult_goals:
+            observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
+            actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
+            
         actions = self.network.select('actor_onestep_flow')(observations=observations, goals=goals, actions=actions)
+
+        if mult_goals:
+            actions = actions.mean(axis=0)
+
         actions = jnp.clip(actions, -1, 1)
         return actions
+    
+    @jax.jit
+    def best_of_n(
+        self,
+        observations,
+        goals,
+        # num_actions,
+        seed=None
+    ):
+        num_actions = self.config['num_actions']
+        action_seed, noise_seed = jax.random.split(seed)
+        mult_observations = jnp.repeat(observations[..., None, :], num_actions, axis=-2)
+        mult_goals = jnp.repeat(goals[..., None, :], num_actions, axis=-2)
+
+        noises = jax.random.normal(
+            action_seed,
+            (
+                *observations.shape[: -len(self.config['ob_dims'])],
+                num_actions,
+                self.config['action_dim']
+            ),
+        )
+        mult_actions = self.sample_flow_actions(observations=mult_observations, noises=noises, goals=mult_goals)
+        mult_actions = jnp.clip(mult_actions, -1, 1)
+
+        qs = self.network.select('critic')(mult_observations, goals=mult_goals, actions=mult_actions).mean(axis=0)
+        idx = jnp.argmax(qs, axis=-1)
+        # actions = mult_actions[idx]
+        bshape = idx.shape
+        idx = idx.reshape(-1)
+        bsize = len(idx)
+
+        actions = jnp.reshape(mult_actions, (-1, self.config["num_actions"], self.config['action_dim']))[jnp.arange(bsize), idx, :].reshape(
+                bshape + (self.config['action_dim'],))
+
+        return actions
+
+    @jax.jit
+    def sample_emaq_actions(
+        self,
+        observations,
+        goals=None,
+        rng=None,
+        # seed=None,
+        # temperature=1.0,
+    ):
+        batch_size = goals.shape[0]
+        action_dim = self.config['action_dim']
+        rng, noise_rng = jax.random.split(rng)
+        noises = jax.random.normal(noise_rng, (batch_size, action_dim))
+        actions = noises
+
+        observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
+        # actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
+
+        for i in range(self.config['flow_steps']):
+            t = jnp.full((*observations.shape[:-1], 1), i / self.config['flow_steps'])
+            vels = self.network.select('actor_bc_flow')(observations, goals=goals, actions=actions, times=t)
+            actions = actions + vels / self.config['flow_steps']
+        actions = jnp.clip(actions, -1, 1)
+
+        qs = self.network.select('critic')(observations=observations, goals=goals, actions=actions).mean(axis=0)
+        action_idx = jnp.argmax(qs)
+        return actions[action_idx]
+    
+    @jax.jit
+    def sample_guidance_actions(
+        self,
+        observations,
+        goals=None,
+        rng=None,
+    ):
+        # batch_size = goals.shape[0]
+        action_dim = self.config['action_dim']
+        rng, noise_rng = jax.random.split(rng)
+        noises = jax.random.normal(noise_rng, (action_dim))
+        actions = noises
+
+        observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
+        actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
+
+        for i in range(self.config['flow_steps']):
+            t = jnp.full((*observations.shape[:-1], 1), i / self.config['flow_steps'])
+            vels = self.network.select('actor_bc_flow')(observations, goals=goals, actions=actions, times=t)
+            vels = vels.mean(axis=0)
+            actions = actions + vels / self.config['flow_steps']
+
+        actions = jnp.clip(actions, -1, 1)
+        action = actions[0]
+        # action = actions.mean(axis=0) # TODO: weighted mean, instead of mean?
+        # action = actions
+        return action
 
     @jax.jit
     def sample_flow_actions(
@@ -293,6 +402,8 @@ def get_config():
             actor_p_randomgoal=0.5,  # Probability of using a random state as the actor goal.
             actor_geom_sample=True,  # Whether to use geometric sampling for future actor goals.
             gc_negative=False,  # Whether to use '0 if s == g else -1' (True) or '1 if s == g else 0' (False) as reward.
+            actor_type='best-of-n',
+            num_actions=8,
         )
     )
     return config

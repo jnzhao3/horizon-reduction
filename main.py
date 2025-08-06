@@ -14,7 +14,7 @@ from ml_collections import config_flags
 from agents import agents
 # from envs.env_utils import make_env_and_datasets
 from utils.datasets import Dataset, GCDataset, HGCDataset
-from utils.evaluation import evaluate
+from utils.evaluation import evaluate_gcfql
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb
 
@@ -183,7 +183,7 @@ def main(_):
             num_tasks = len(task_infos)
             for task_id in tqdm.trange(1, num_tasks + 1):
                 task_name = task_infos[task_id - 1]['task_name']
-                eval_info, trajs, cur_renders = evaluate(
+                eval_info, trajs, cur_renders = evaluate_gcfql(
                     agent=agent,
                     env=env,
                     env_name=FLAGS.env_name,

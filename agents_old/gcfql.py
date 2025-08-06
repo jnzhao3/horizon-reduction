@@ -205,7 +205,6 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         self,
         observations,
         goals,
-        # num_actions,
         seed=None
     ):
         num_actions = self.config['num_actions']
@@ -350,12 +349,22 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             layer_norm=config['layer_norm'],
         )
 
-        network_info = dict(
-            critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
-            target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
-            actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
-            actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
-        )
+        if config['with_value']:
+            network_info = dict(
+                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
+                value=(copy.deepcopy(critic_def), (ex_observations, ex_goals)), # added for V(s, g) that regresses to Q(s, a, g)
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
+            )
+        else:
+            network_info = dict(
+                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
+            )
+            
         networks = {k: v[0] for k, v in network_info.items()}
         network_args = {k: v[1] for k, v in network_info.items()}
 
@@ -404,6 +413,7 @@ def get_config():
             gc_negative=False,  # Whether to use '0 if s == g else -1' (True) or '1 if s == g else 0' (False) as reward.
             actor_type='best-of-n',
             num_actions=8,
+            with_value=False,
         )
     )
     return config

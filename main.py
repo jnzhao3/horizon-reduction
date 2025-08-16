@@ -4,6 +4,7 @@ import os
 import random
 import time
 from collections import defaultdict
+import sys
 
 import numpy as np
 import tqdm
@@ -16,7 +17,7 @@ from agents import agents
 from utils.datasets import Dataset, GCDataset, HGCDataset
 from utils.evaluation import evaluate_gcfql
 from utils.flax_utils import restore_agent, save_agent
-from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb
+from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb, get_animal
 
 FLAGS = flags.FLAGS
 
@@ -26,6 +27,8 @@ flags.DEFINE_string('env_name', 'puzzle-4x5-play-oraclerep-v0', 'Environment (da
 flags.DEFINE_string('dataset_dir', None, 'Dataset directory.')
 flags.DEFINE_integer('dataset_replace_interval', 1000, 'Dataset replace interval.')
 flags.DEFINE_integer('num_datasets', None, 'Number of datasets to use.')
+flags.DEFINE_integer('train_data_size', None, 'Size of training data to use (None for full dataset).')
+
 flags.DEFINE_string('save_dir', 'exp/', 'Save directory.')
 flags.DEFINE_string('restore_path', None, 'Restore path.')
 flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
@@ -34,15 +37,16 @@ flags.DEFINE_integer('offline_steps', 5000000, 'Number of offline steps.')
 flags.DEFINE_integer('log_interval', 10000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 250000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 5000000, 'Saving interval.')
+flags.DEFINE_string('json_path', None, 'Path to JSON file with additional parameters.')
 
 flags.DEFINE_integer('eval_episodes', 15, 'Number of episodes for each task.')
 flags.DEFINE_float('eval_temperature', 0, 'Actor temperature for evaluation.')
 flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.')
 flags.DEFINE_integer('video_episodes', 1, 'Number of video episodes for each task.')
 flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
+
 flags.DEFINE_bool('use_wandb', True, 'Use Weights & Biases for logging.')
-# flags.DEFINE_bool('bfn', False, 'whether of not to use best of n')
-# flags.DEFINE_integer('num_actions', 8, 'the number of actions to sample from')
+flags.DEFINE_bool('wandb_alerts', True, 'Enable Weights & Biases alerts.')
 
 config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
 
@@ -91,12 +95,21 @@ def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_en
 
 def main(_):
     # Set up logger.
-    exp_name = get_exp_name(FLAGS.seed, config=FLAGS)
+    exp_name, info = get_exp_name(FLAGS.seed, config=FLAGS)
     if FLAGS.use_wandb:
         setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
     else:
         project_name = 'horizon_reduction'
         run_group = 'no_wandb'
+
+    ##=========== LOG MESSAGES TO ERR AND SLACK ===========##
+
+    animal = get_animal()
+    print(f"\n{animal}\n", exp_name)
+    print("\n\n", info, file=sys.stderr)
+    print("\n\npython", " ".join(sys.argv), "\n", file=sys.stderr)
+    if FLAGS.wandb_alerts:
+        wandb.run.alert(title=f"{animal} train_fql run started!", text=f"{exp_name}\n\n{'python ' + ' '.join(sys.argv)}\n\n{info}")
 
     if FLAGS.use_wandb:
         FLAGS.save_dir = os.path.join(FLAGS.save_dir, wandb.run.project, FLAGS.run_group, exp_name)
@@ -110,10 +123,6 @@ def main(_):
     # Set up environment and datasets.
     config = FLAGS.agent
 
-    # if FLAGS.bfn == True:
-    #     config['agent_type'] = 'best-of-n'
-    #     config['num_actions'] = FLAGS.num_actions
-
     if FLAGS.dataset_dir is None:
         datasets = [None]
     else:
@@ -123,6 +132,45 @@ def main(_):
         datasets = datasets[: FLAGS.num_datasets]
     dataset_idx = 0
     env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx])
+    
+    # if FLAGS.train_data_size is not None:
+    #     import ipdb; ipdb.set_trace()
+    #     new_train_dataset = {}
+    #     for k,v in train_dataset.items():
+    #         new_train_dataset[k] = v[:FLAGS.train_data_size]
+    #         if k == 'terminals':
+    #             new_train_dataset[k][FLAGS.train_data_size - 1] = 1.0
+    #         if k == 'valids':
+    #             new_train_dataset[k][FLAGS.train_data_size - 1] = 0.0
+
+    #     train_dataset = new_train_dataset
+
+    N = int(FLAGS.train_data_size)
+    if N > 0:
+        new_train_dataset = {}
+        for k, v in train_dataset.items():
+            # Ensure we have a writable host array
+            if isinstance(v, np.ndarray):
+                arr = v[:N].copy()                       # writable copy
+            else:
+                try:
+                    # JAX DeviceArray, memmap, etc. -> force to NumPy writable
+                    arr = np.array(v[:N], copy=True)
+                except Exception:
+                    # As a fallback (e.g., PyTorch tensor)
+                    try:
+                        arr = v[:N].clone().cpu().numpy()
+                    except Exception:
+                        arr = np.array(v[:N], copy=True)
+
+            if k == "terminals":
+                arr[N - 1] = 1  # cast to dtype automatically (bool->True, uint8->1)
+            elif k == "valids":
+                arr[N - 1] = 0
+
+            new_train_dataset[k] = arr
+
+        train_dataset = new_train_dataset
 
     # Initialize agent.
     random.seed(FLAGS.seed)
@@ -233,6 +281,20 @@ def main(_):
     train_logger.close()
     eval_logger.close()
 
+    if FLAGS.json_path is not None:
+        with open(FLAGS.json_path, 'rb') as f:
+            paths = json.load(f)
+
+        
+        if FLAGS.env_name in paths:
+            path = paths[FLAGS.env_name]
+            path[FLAGS.run_group] = {
+                'dir': FLAGS.save_dir,
+                'file': f'data-{FLAGS.offline_steps}.npz'
+            }
+
+            with open(FLAGS.json_path, 'w') as f:
+                json.dump(paths, f, indent=4)
 
 if __name__ == '__main__':
     app.run(main)

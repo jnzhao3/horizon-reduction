@@ -20,6 +20,7 @@ JOB_N=1
 COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
 source ~/.bashrc
 micromamba activate aorl
+export PYTHONPATH="../:${PYTHONPATH}"
 
 declare -a commands=(
  [1]='python3 main.py --run_group gcfql_maze_oracle2 --env_name humanoidmaze-large-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-large-navigate-v0 --train_data_size 100000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --json_path ../jsons/data.json'

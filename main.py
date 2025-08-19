@@ -34,9 +34,9 @@ flags.DEFINE_string('restore_path', None, 'Restore path.')
 flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
 flags.DEFINE_integer('offline_steps', 5000000, 'Number of offline steps.')
-flags.DEFINE_integer('log_interval', 10000, 'Logging interval.')
-flags.DEFINE_integer('eval_interval', 250000, 'Evaluation interval.')
-flags.DEFINE_integer('save_interval', 5000000, 'Saving interval.')
+flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
+flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
+flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
 flags.DEFINE_string('json_path', None, 'Path to JSON file with additional parameters.')
 
 flags.DEFINE_integer('eval_episodes', 15, 'Number of episodes for each task.')

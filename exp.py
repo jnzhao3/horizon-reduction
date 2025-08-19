@@ -27,7 +27,7 @@ debug = {
 gcfql_cube_oracle5 = {
     "script": "main.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "12:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "gcfql_cube_oracle5",
         "env_name": "cube-triple-play-oraclerep-v0", # use oracle representation!
@@ -48,7 +48,7 @@ gcfql_cube_oracle5 = {
 gcfql_maze_oracle1 = {
     "script": "main.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "12:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "gcfql_maze_oracle1",
         "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
@@ -69,7 +69,7 @@ gcfql_maze_oracle1 = {
 gcfql_maze_oracle2 = {
     "script": "main.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "12:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "gcfql_maze_oracle2",
         "env_name": "humanoidmaze-large-navigate-oraclerep-v0", # use oracle representation!

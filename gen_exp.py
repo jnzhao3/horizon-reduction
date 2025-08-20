@@ -95,6 +95,7 @@ JOB_N={num_jobs}
 COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
 source ~/.bashrc
 micromamba activate aorl
+export PYTHONPATH="../:${{PYTHONPATH}}"
 
 declare -a commands=(
  {d_str}

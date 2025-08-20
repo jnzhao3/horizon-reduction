@@ -26,7 +26,7 @@ debug = {
 
 gcfql_cube_oracle5 = {
     "script": "main.py",
-    "priority": "normal", # high, normal, low, lowest
+    "priority": "high", # high, normal, low, lowest
     "time": "24:00:00",
     "config": {
         "run_group": "gcfql_cube_oracle5",
@@ -47,7 +47,7 @@ gcfql_cube_oracle5 = {
 
 gcfql_maze_oracle1 = {
     "script": "main.py",
-    "priority": "normal", # high, normal, low, lowest
+    "priority": "high", # high, normal, low, lowest
     "time": "24:00:00",
     "config": {
         "run_group": "gcfql_maze_oracle1",
@@ -68,7 +68,7 @@ gcfql_maze_oracle1 = {
 
 gcfql_maze_oracle2 = {
     "script": "main.py",
-    "priority": "normal", # high, normal, low, lowest
+    "priority": "high", # high, normal, low, lowest
     "time": "24:00:00",
     "config": {
         "run_group": "gcfql_maze_oracle2",

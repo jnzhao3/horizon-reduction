@@ -23,7 +23,7 @@ micromamba activate aorl
 export PYTHONPATH="../:${PYTHONPATH}"
 
 declare -a commands=(
- [1]='python3 main.py --run_group gcfql_maze_oracle1 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoid-medium-navigate-v0 --train_data_size 100000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --json_path ../jsons/data.json'
+ [1]='python3 main.py --run_group gcfql_maze_oracle1 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --json_path ../jsons/data.json'
 )
 
 cd /home/jennifer/aorl/horizon_reduction

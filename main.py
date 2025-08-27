@@ -148,20 +148,25 @@ def main(_):
     N = int(FLAGS.train_data_size)
     if N > 0:
         new_train_dataset = {}
+        if 'valids' in train_dataset:
+            idxs = np.where(train_dataset['valids'] == 1)[0]
+            idxs = idxs[N]
+        else:
+            idxs = N
         for k, v in train_dataset.items():
             # Ensure we have a writable host array
             if isinstance(v, np.ndarray):
-                arr = v[:N].copy()                       # writable copy
+                arr = v[:idxs].copy()                       # writable copy
             else:
                 try:
                     # JAX DeviceArray, memmap, etc. -> force to NumPy writable
-                    arr = np.array(v[:N], copy=True)
+                    arr = np.array(v[:idxs], copy=True)
                 except Exception:
                     # As a fallback (e.g., PyTorch tensor)
                     try:
-                        arr = v[:N].clone().cpu().numpy()
+                        arr = v[:idxs].clone().cpu().numpy()
                     except Exception:
-                        arr = np.array(v[:N], copy=True)
+                        arr = np.array(v[:idxs], copy=True)
 
             if k == "terminals":
                 arr[N - 1] = 1  # cast to dtype automatically (bool->True, uint8->1)

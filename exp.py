@@ -108,7 +108,7 @@ gcfql_maze_oracle3_1 = { # Debugging script
     },
     "date": "2025-08-25"
 }
-gcfql_maze_oracle3_2 = { # Debugging script
+gcfql_maze_oracle3_2 = {
     "script": "main.py",
     "priority": "high", # high, normal, low, lowest
     "time": "36:00:00",

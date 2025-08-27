@@ -179,3 +179,81 @@ gcfql_cube_oracle6 = { # Debugging script
     },
     "date": "2025-08-25"
 }
+
+gcfql_maze_oracle3_3 = {
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_maze_oracle3_3",
+        "env_name": "humanoidmaze-large-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-large-navigate-v0",
+        "train_data_size": 100000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.num_actions" : 4,
+        "agent.num_qs" : 4,
+        "agent.subgoal_steps" : 10,
+        "agent.value_loss_type" : "squared",
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0)
+    },
+    "date": "2025-08-25"
+}
+
+gcfql_maze_oracle4_2 = { # Debugging script
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_maze_oracle4_2",
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": 100000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.num_actions" : 4,
+        "agent.num_qs" : 4,
+        "agent.subgoal_steps" : 10,
+        "agent.value_loss_type" : "squared",
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0)
+    },
+    "date": "2025-08-25"
+}
+
+gcfql_cube_oracle6_2 = { # Debugging script
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_cube_oracle6_2",
+        "env_name": "cube-triple-play-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/cube-triple-play-v0",
+        "train_data_size": 100000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.num_actions" : 4,
+        "agent.num_qs" : 4,
+        "agent.subgoal_steps" : 10,
+        "agent.value_loss_type" : "squared",
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0)
+    },
+    "date": "2025-08-25"
+}

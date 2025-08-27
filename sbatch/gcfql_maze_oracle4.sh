@@ -23,8 +23,8 @@ micromamba activate aorl
 export PYTHONPATH="../:${PYTHONPATH}"
 
 declare -a commands=(
- [1]='python3 main.py --run_group gcfql_maze_oracle4 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --offline_steps 2000000 --save_interval 500000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer True --agent.subgoal_steps 25 --agent.value_loss_type squared --json_path ../jsons/data.json --agent.awr_invtemp 0.0'
- [2]='python3 main.py --run_group gcfql_maze_oracle4 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --offline_steps 2000000 --save_interval 500000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer True --agent.subgoal_steps 25 --agent.value_loss_type squared --json_path ../jsons/data.json --agent.awr_invtemp 1.0'
+ [1]='python3 main.py --run_group gcfql_maze_oracle4 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --offline_steps 2000000 --save_interval 500000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer=True --agent.subgoal_steps 25 --agent.value_loss_type squared --json_path ../jsons/data.json --agent.awr_invtemp 0.0'
+ [2]='python3 main.py --run_group gcfql_maze_oracle4 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --offline_steps 2000000 --save_interval 500000 --save_dir ../../scratch/gcfql/ --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer=True --agent.subgoal_steps 25 --agent.value_loss_type squared --json_path ../jsons/data.json --agent.awr_invtemp 1.0'
 )
 
 cd /home/jennifer/aorl/horizon_reduction

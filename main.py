@@ -124,7 +124,8 @@ def main(_):
     config = FLAGS.agent
 
     if FLAGS.dataset_dir is None:
-        datasets = [None]
+        # datasets = [None]
+        raise ValueError("Must provide dataset directory.")
     else:
         # Dataset directory.
         datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
@@ -132,18 +133,6 @@ def main(_):
         datasets = datasets[: FLAGS.num_datasets]
     dataset_idx = 0
     env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx])
-    
-    # if FLAGS.train_data_size is not None:
-    #     import ipdb; ipdb.set_trace()
-    #     new_train_dataset = {}
-    #     for k,v in train_dataset.items():
-    #         new_train_dataset[k] = v[:FLAGS.train_data_size]
-    #         if k == 'terminals':
-    #             new_train_dataset[k][FLAGS.train_data_size - 1] = 1.0
-    #         if k == 'valids':
-    #             new_train_dataset[k][FLAGS.train_data_size - 1] = 0.0
-
-    #     train_dataset = new_train_dataset
 
     N = int(FLAGS.train_data_size)
     if N > 0:
@@ -169,9 +158,9 @@ def main(_):
                         arr = np.array(v[:idxs], copy=True)
 
             if k == "terminals":
-                arr[N - 1] = 1  # cast to dtype automatically (bool->True, uint8->1)
+                arr[idxs - 1] = 1  # cast to dtype automatically (bool->True, uint8->1)
             elif k == "valids":
-                arr[N - 1] = 0
+                arr[idxs - 1] = 0
 
             new_train_dataset[k] = arr
 
@@ -198,7 +187,7 @@ def main(_):
         config,
     )
 
-    print(agent.config)
+    print(agent.config, file=sys.stderr)
 
     # Restore agent.
     if FLAGS.restore_path is not None:

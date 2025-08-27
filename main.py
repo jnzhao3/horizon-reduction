@@ -198,6 +198,8 @@ def main(_):
         config,
     )
 
+    print(agent.config)
+
     # Restore agent.
     if FLAGS.restore_path is not None:
         agent = restore_agent(agent, FLAGS.restore_path, FLAGS.restore_epoch)

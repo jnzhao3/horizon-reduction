@@ -344,3 +344,61 @@ gcfql_cube_oracle6_3 = { # Debugging script
     },
     "date": "2025-08-26"
 }
+
+gcfql_cube_oracle6_4 = { # Debugging script
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_cube_oracle6_4",
+        "env_name": "cube-double-play-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/cube-double-play-v0",
+        "train_data_size": 100000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : 10,
+        "agent.value_loss_type" : "squared",
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0)
+    },
+    "date": "2025-08-27"
+}
+
+gcfql_cube_oracle6_5 = { # Debugging script
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_cube_oracle6_5",
+        "env_name": "cube-quadruple-play-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/cube-quadruple-play-v0",
+        "train_data_size": 100000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : 10,
+        "agent.value_loss_type" : "squared",
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0)
+    },
+    "date": "2025-08-27"
+}

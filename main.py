@@ -122,6 +122,8 @@ def main(_):
 
     # Set up environment and datasets.
     config = FLAGS.agent
+    if 'humanoidmaze' in FLAGS.env_name:
+        assert config['discount'] == 0.995, "Humanoid maze tasks require discount factor of 0.995."
 
     if FLAGS.dataset_dir is None:
         # datasets = [None]

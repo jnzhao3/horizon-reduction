@@ -605,7 +605,7 @@ gcfql_maze_oracle3_7 = {
         "agent.num_actions" : 8,
         "agent.num_qs" : 2,
         "agent.subgoal_steps" : (50,75,100),
-        "agent.value_loss_type" : "squared",
+        "agent.value_loss_type" : "squared", # not necessary
         "json_path": "../jsons/data.json",
         "agent.awr_invtemp": (0.0,1.0),
         "agent.discount" : 0.995
@@ -671,4 +671,33 @@ gcfql_cube_oracle6_8 = { # Debugging script
         "agent.discount" : 0.999
     },
     "date": "2025-08-27"
+}
+
+gcfql_maze_oracle4_7 = { # Debugging script
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_maze_oracle4_7",
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": 1000000,
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,75,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": (0.0,1.0),
+        "agent.discount" : 0.995
+    },
+    "date": "2025-08-26"
 }

@@ -724,7 +724,6 @@ gcfql_maze_oracle3_8 = {
         "agent.num_actions" : 8,
         "agent.num_qs" : 2,
         "agent.subgoal_steps" : (50,100),
-        "agent.value_loss_type" : "squared", # not necessary
         "json_path": "../jsons/data.json",
         "agent.awr_invtemp": 1.0,
         "agent.discount" : 0.995,
@@ -785,7 +784,6 @@ gcfql_cube_oracle6_9 = {
         "agent.num_actions" : 8,
         "agent.num_qs" : 2,
         "agent.subgoal_steps" : (50,100),
-        "agent.value_loss_type" : "squared",
         "json_path": "../jsons/data.json",
         "agent.awr_invtemp": 1.0,
         "agent.discount" : 0.999,

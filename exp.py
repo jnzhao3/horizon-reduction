@@ -791,3 +791,230 @@ gcfql_cube_oracle6_9 = {
     },
     "date": "2025-08-29"
 }
+gcfql_cube_oracle7_1 = { 
+    "script": "main.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "gcfql_cube_oracle7_1",
+        "env_name": "cube-triple-play-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/cube-triple-play-v0",
+        "train_data_size": (100000,1000000),
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": 1.0,
+        "agent.discount" : 0.999,
+        "agent.goal_proposer_type" : ("awr","default","actor-gc")
+    },
+    "date": "2025-09-01"
+}
+
+train_value1_1 = { 
+    "script": "train_value.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "train_value1_1",
+        "env_name": "humanoidmaze-large-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-large-navigate-v0",
+        "train_data_size": (100000,1000000),
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": 1.0,
+        "agent.discount" : 0.995,
+        # "agent.goal_proposer_type" : ("awr","default","actor-gc")
+        # "restore_path": "../../scratch/gcfql/gcfql_maze_oracle3_8_2025-08-26_18-37-28/model_final.pt",
+        "restore_path" : 
+            ("../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1402547812974.s_27684700_4.20250830_020259_647.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1414568005230.s_27684111_1.20250829_220124_123.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1432255779435.s_27684707_5.20250830_020510_865.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1433302649454.s_27684112_2.20250829_220125_578.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1434207663726.s_27684103_6.20250830_020534_012.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1436102206062.s_27684113_3.20250829_220125_148.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1438068558443.s_27684103_6.20250830_020534_012.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1444406050411.s_27684111_1.20250829_220124_123.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1447825734251.s_27684113_3.20250829_220125_147.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1448582269550.s_27684707_5.20250830_020510_865.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1448722333294.s_27684112_2.20250829_220125_578.gcfql_maze_oracle3_8"),
+        "restore_epoch": 2000000,
+        "q_pred_calc" : ("batch", "sample"),
+        "offline_steps": 100,
+        "log_interval": 10,
+        "eval_interval": 50,
+        "save_interval": 100,
+    },
+    "date": "2025-09-07"
+}
+
+train_value1_2 = { 
+    "script": "train_value.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "train_value1_2",
+        "env_name": "humanoidmaze-large-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-large-navigate-v0",
+        "train_data_size": (100000,1000000),
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": 1.0,
+        "agent.discount" : 0.995,
+        # "agent.goal_proposer_type" : ("awr","default","actor-gc")
+        # "restore_path": "../../scratch/gcfql/gcfql_maze_oracle3_8_2025-08-26_18-37-28/model_final.pt",
+        "restore_path" : 
+            ("../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1402547812974.s_27684700_4.20250830_020259_647.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1414568005230.s_27684111_1.20250829_220124_123.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1432255779435.s_27684707_5.20250830_020510_865.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1433302649454.s_27684112_2.20250829_220125_578.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1434207663726.s_27684103_6.20250830_020534_012.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1436102206062.s_27684113_3.20250829_220125_148.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1438068558443.s_27684103_6.20250830_020534_012.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1444406050411.s_27684111_1.20250829_220124_123.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1447825734251.s_27684113_3.20250829_220125_147.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1448582269550.s_27684707_5.20250830_020510_865.gcfql_maze_oracle3_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle3_8/sd000_1448722333294.s_27684112_2.20250829_220125_578.gcfql_maze_oracle3_8"),
+        "restore_epoch": 2000000,
+        "q_pred_calc" : ("batch", "sample")
+    },
+    "date": "2025-09-07"
+}
+
+train_value2_1 = { 
+    "script": "train_value.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "train_value2_1",
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": (100000,1000000),
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": 1.0,
+        "agent.discount" : 0.995,
+        # "agent.goal_proposer_type" : ("awr","default","actor-gc")
+        # "restore_path": "../../scratch/gcfql/gcfql_maze_oracle3_8_2025-08-26_18-37-28/model_final.pt",
+        "restore_path" : 
+            (
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1456162036334.s_27680590_6.20250829_185905_857.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1453467320942.s_27680626_4.20250829_185906_336.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1448342040171.s_27680619_3.20250829_185930_100.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1438812371566.s_27680617_1.20250829_190015_646.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1436627854958.s_27680618_2.20250829_185820_547.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1426623563374.s_27680619_3.20250829_185930_100.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1414600722027.s_27680590_6.20250829_185845_686.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1414321273454.s_27680627_5.20250829_185845_775.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1452282852974.s_27680618_2.20250829_185841_310.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1448103063147.s_27680617_1.20250829_190015_646.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1441449117294.s_27680626_4.20250829_185845_562.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1433843123822.s_27680627_5.20250829_185906_465.gcfql_maze_oracle4_8"
+        ),
+        "restore_epoch": 2000000,
+        "q_pred_calc" : ("batch", "sample"),
+        "offline_steps": 100,
+        "log_interval": 10,
+        "eval_interval": 50,
+        "save_interval": 100,
+    },
+    "date": "2025-09-07"
+}
+
+train_value2_2 = { 
+    "script": "train_value.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "train_value2_2",
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": (100000,1000000),
+        "offline_steps": 2000000,
+        "save_interval": 200000,
+        "save_dir": "../../scratch/gcfql/",
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 2,
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.awr_invtemp": 1.0,
+        "agent.discount" : 0.995,
+        # "agent.goal_proposer_type" : ("awr","default","actor-gc")
+        # "restore_path": "../../scratch/gcfql/gcfql_maze_oracle3_8_2025-08-26_18-37-28/model_final.pt",
+        "restore_path" : 
+            (
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1456162036334.s_27680590_6.20250829_185905_857.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1453467320942.s_27680626_4.20250829_185906_336.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1448342040171.s_27680619_3.20250829_185930_100.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1438812371566.s_27680617_1.20250829_190015_646.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1436627854958.s_27680618_2.20250829_185820_547.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1426623563374.s_27680619_3.20250829_185930_100.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1414600722027.s_27680590_6.20250829_185845_686.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1414321273454.s_27680627_5.20250829_185845_775.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1452282852974.s_27680618_2.20250829_185841_310.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1448103063147.s_27680617_1.20250829_190015_646.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1441449117294.s_27680626_4.20250829_185845_562.gcfql_maze_oracle4_8",
+            "../../scratch/gcfql/horizon-reduction/gcfql_maze_oracle4_8/sd000_1433843123822.s_27680627_5.20250829_185906_465.gcfql_maze_oracle4_8"
+        ),
+        "restore_epoch": 2000000,
+        "q_pred_calc" : ("batch", "sample"),
+    #     "offline_steps": 100,
+    #     "log_interval": 10,
+    #     "eval_interval": 50,
+    #     "save_interval": 100,
+    },
+    "date": "2025-09-07"
+}

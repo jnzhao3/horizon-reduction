@@ -1,0 +1,492 @@
+import glob
+import json
+from operator import ne
+import os
+import random
+import time
+from collections import defaultdict
+import sys
+
+import jax
+import numpy as np
+import tqdm
+import wandb
+from absl import app, flags
+from ml_collections import config_flags
+
+from agents import agents
+# from envs.env_utils import make_env_and_datasets
+from utils.datasets import Dataset, GCDataset, HGCDataset
+from utils.evaluation import evaluate_gcfql
+from utils.flax_utils import ModuleDict, restore_agent, save_agent
+from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb, get_animal
+from utils.networks import GCValue
+from utils.flax_utils import TrainState
+import optax
+import jax.numpy as jnp
+
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string('run_group', 'Debug', 'Run group.')
+flags.DEFINE_integer('seed', 0, 'Random seed.')
+flags.DEFINE_string('env_name', 'puzzle-4x5-play-oraclerep-v0', 'Environment (dataset) name.')
+flags.DEFINE_string('dataset_dir', None, 'Dataset directory.')
+flags.DEFINE_integer('dataset_replace_interval', 1000, 'Dataset replace interval.')
+flags.DEFINE_integer('num_datasets', None, 'Number of datasets to use.')
+flags.DEFINE_integer('train_data_size', None, 'Size of training data to use (None for full dataset).')
+
+flags.DEFINE_string('save_dir', 'exp/', 'Save directory.')
+flags.DEFINE_string('restore_path', None, 'Restore path.')
+flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
+
+flags.DEFINE_integer('offline_steps', 5000000, 'Number of offline steps.')
+flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
+flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
+flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
+flags.DEFINE_string('json_path', None, 'Path to JSON file with additional parameters.')
+
+flags.DEFINE_integer('eval_episodes', 15, 'Number of episodes for each task.')
+flags.DEFINE_float('eval_temperature', 0, 'Actor temperature for evaluation.')
+flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.')
+flags.DEFINE_integer('video_episodes', 1, 'Number of video episodes for each task.')
+flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
+
+flags.DEFINE_bool('use_wandb', True, 'Use Weights & Biases for logging.')
+flags.DEFINE_bool('wandb_alerts', True, 'Enable Weights & Biases alerts.')
+flags.DEFINE_string('q_pred_calc', 'sample', 'Method for calculating Q predictions (sample or mean).') # batch
+
+config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
+
+import numpy as np
+import ogbench
+
+from utils.datasets import Dataset
+
+
+def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_env=None):
+    """Make OGBench environment and datasets.
+
+    Args:
+        dataset_name: Name of the environment (dataset).
+        dataset_path: Path to the dataset file.
+        dataset_only: Whether to return only the datasets.
+        cur_env: Current environment (only used when `dataset_only` is True).
+
+    Returns:
+        A tuple of the environment (if `dataset_only` is False), training dataset, and validation dataset.
+    """
+    if dataset_only:
+        train_dataset, val_dataset = ogbench.make_env_and_datasets(
+            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env
+        )
+    else:
+        env, train_dataset, val_dataset = ogbench.make_env_and_datasets(
+            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env
+        )
+    train_dataset = Dataset.create(**train_dataset)
+    val_dataset = Dataset.create(**val_dataset)
+
+    # Clip dataset actions.
+    eps = 1e-5
+    train_dataset = train_dataset.copy(
+        add_or_replace=dict(actions=np.clip(train_dataset['actions'], -1 + eps, 1 - eps))
+    )
+    val_dataset = val_dataset.copy(add_or_replace=dict(actions=np.clip(val_dataset['actions'], -1 + eps, 1 - eps)))
+
+    if dataset_only:
+        return train_dataset, val_dataset
+    else:
+        env.reset()
+        return env, train_dataset, val_dataset
+
+
+def main(_):
+    # Set up logger.
+    exp_name, info = get_exp_name(FLAGS.seed, config=FLAGS)
+    if FLAGS.use_wandb:
+        setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
+    else:
+        project_name = 'horizon_reduction'
+        run_group = 'no_wandb'
+
+    ##=========== LOG MESSAGES TO ERR AND SLACK ===========##
+
+    animal = get_animal()
+    print(f"\n{animal}\n", exp_name)
+    print("\n\n", info, file=sys.stderr)
+    print("\n\npython", " ".join(sys.argv), "\n", file=sys.stderr)
+    if FLAGS.wandb_alerts:
+        wandb.run.alert(title=f"{animal} train_fql run started!", text=f"{exp_name}\n\n{'python ' + ' '.join(sys.argv)}\n\n{info}")
+
+    if FLAGS.use_wandb:
+        FLAGS.save_dir = os.path.join(FLAGS.save_dir, wandb.run.project, FLAGS.run_group, exp_name)
+    else:
+        FLAGS.save_dir = os.path.join(FLAGS.save_dir, project_name, run_group, exp_name)
+    os.makedirs(FLAGS.save_dir, exist_ok=True)
+    flag_dict = get_flag_dict()
+    with open(os.path.join(FLAGS.save_dir, 'flags.json'), 'w') as f:
+        json.dump(flag_dict, f)
+
+    # Set up environment and datasets.
+    config = FLAGS.agent
+    if 'humanoidmaze' in FLAGS.env_name:
+        assert config['discount'] == 0.995, "Humanoid maze tasks require discount factor of 0.995."
+
+    if FLAGS.dataset_dir is None:
+        # datasets = [None]
+        raise ValueError("Must provide dataset directory.")
+    else:
+        # Dataset directory.
+        datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
+    if FLAGS.num_datasets is not None:
+        datasets = datasets[: FLAGS.num_datasets]
+    dataset_idx = 0
+    env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx])
+
+    ##=========== PREPARE DATASETS ===========##
+    N = int(FLAGS.train_data_size)
+    if N > 0:
+        new_train_dataset = {}
+        if 'valids' in train_dataset:
+            idxs = np.where(train_dataset['valids'] == 1)[0]
+            idxs = idxs[N]
+        else:
+            idxs = N
+        for k, v in train_dataset.items():
+            # Ensure we have a writable host array
+            if isinstance(v, np.ndarray):
+                arr = v[:idxs].copy()                       # writable copy
+            else:
+                try:
+                    # JAX DeviceArray, memmap, etc. -> force to NumPy writable
+                    arr = np.array(v[:idxs], copy=True)
+                except Exception:
+                    # As a fallback (e.g., PyTorch tensor)
+                    try:
+                        arr = v[:idxs].clone().cpu().numpy()
+                    except Exception:
+                        arr = np.array(v[:idxs], copy=True)
+
+            if k == "terminals":
+                arr[idxs - 1] = 1  # cast to dtype automatically (bool->True, uint8->1)
+            elif k == "valids":
+                arr[idxs - 1] = 0
+
+            new_train_dataset[k] = arr
+
+        train_dataset = new_train_dataset
+
+    # Initialize agent.
+    random.seed(FLAGS.seed)
+    np.random.seed(FLAGS.seed)
+
+    dataset_class_dict = {
+        'GCDataset': GCDataset,
+        'HGCDataset': HGCDataset,
+    }
+    dataset_class = dataset_class_dict[config['dataset_class']]
+    train_dataset = dataset_class(Dataset.create(**train_dataset), config)
+    val_dataset = dataset_class(Dataset.create(**val_dataset), config)
+
+    example_batch = train_dataset.sample(1)
+
+    agent_class = agents[config['agent_name']]
+    agent = agent_class.create(
+        FLAGS.seed,
+        example_batch,
+        config,
+    )
+
+    print(agent.config, file=sys.stderr)
+
+    # Restore agent.
+    assert FLAGS.restore_path is not None and FLAGS.restore_epoch is not None, "Must provide restore path and epoch."
+    agent = restore_agent(agent, FLAGS.restore_path, FLAGS.restore_epoch)
+
+    # Train agent.
+    train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
+    eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
+    first_time = time.time()
+    last_time = time.time()
+
+    ##=========== CREATE NEW VALUE FUNCTION NETWORK ===========##
+    # goal_dim = example_batch['goals'].shape[-1]
+    if 'oracle_reps' in example_batch:
+        goal_dim = example_batch['oracle_reps'].shape[-1]
+        ex_goals = example_batch['oracle_reps']
+    else:
+        goal_dim = example_batch['observations'].shape[-1]
+        ex_goals = example_batch['observations']
+    value_def = GCValue(
+        hidden_dims=config['value_hidden_dims'],
+        layer_norm=config['layer_norm'],
+        num_ensembles=config['num_qs'],
+    )
+
+    network_info = dict(
+        value = (value_def, (ex_goals, ex_goals, None))
+    )
+    networks = {k: v[0] for k,v in network_info.items()}
+    network_args = {k: v[1] for k,v in network_info.items()}
+    network_def = ModuleDict(networks)
+    network_tx = optax.adam(learning_rate=config['lr'])
+    rng = jax.random.PRNGKey(FLAGS.seed)
+    rng, init_rng = jax.random.split(rng)
+    network_params = network_def.init(init_rng, **network_args)['params']
+    network = TrainState.create(network_def, network_params, tx=network_tx)
+
+    @jax.jit
+    def value_loss_helper(batch, grad_params, rng):
+        pred = network.select('value')(
+            observations=batch['observations'], goals=batch['value_goals'], params=grad_params
+        )
+        return pred
+    
+    @jax.jit
+    def value_loss_helper2(batch, actions, grad_params, rng):
+        q_pred = agent.network.select('critic')(
+            batch['observations'], goals=batch['value_goals'], actions=actions
+        )
+        return q_pred
+
+
+    def value_loss(batch, grad_params, rng):
+        # pred = network.select('value')(
+        #     observations=batch['observations'], goals=batch['value_goals'], params=grad_params
+        # )
+        
+
+        if FLAGS.q_pred_calc == 'sample':
+            actions = agent.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
+        elif FLAGS.q_pred_calc == 'batch':
+            actions = batch['actions']
+        
+
+        # q_pred = agent.network.select('critic')(
+            # batch['observations'], goals=batch['value_goals'], actions=actions
+        # )
+        q_pred = value_loss_helper2(batch, actions, grad_params, rng)
+
+        from utils.samplers import to_oracle_rep
+        batch['observations'] = to_oracle_rep(batch['observations'], env)
+        pred = value_loss_helper(batch, grad_params, rng)
+
+        if config['critic_loss_type'] == 'squared':
+            value_loss = jnp.square(pred - q_pred).mean()
+        elif config['critic_loss_type'] == 'bce':
+            log_pred = jax.nn.log_sigmoid(pred)
+            log_not_pred = jax.nn.log_sigmoid(-pred)
+
+            q_pred = jax.nn.sigmoid(q_pred)
+            value_loss = -(q_pred * log_pred + (1 - q_pred) * log_not_pred).mean()
+
+        info = {
+            'value_loss': value_loss,
+            'q_pred_mean': q_pred.mean(),
+            'q_pred_std': q_pred.std(),
+            'value_pred_mean': pred.mean(),
+            'value_pred_std': pred.std(),
+        }
+
+        return value_loss, info
+
+    for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+        batch = train_dataset.sample(config['batch_size'])
+        # agent, update_info = agent.update(batch)
+        new_rng, rng = jax.random.split(rng)
+
+        def loss_fn(grad_params):
+            return value_loss(batch, grad_params, rng=new_rng)
+        
+        new_network, info = network.apply_loss_fn(loss_fn)
+        network = new_network
+        # network = network.replace(network=new_network, rng=new_rng)
+        update_info = {**info}
+
+        # Log metrics.
+        if i % FLAGS.log_interval == 0:
+            train_metrics = {f'training/{k}': v for k, v in update_info.items()}
+
+            val_batch = val_dataset.sample(config['batch_size'])
+            _, val_info = agent.total_loss(val_batch, grad_params=None)
+            train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
+
+            train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
+            train_metrics['time/total_time'] = time.time() - first_time
+            last_time = time.time()
+            if FLAGS.use_wandb:
+                wandb.log(train_metrics, step=i)
+            train_logger.log(train_metrics, step=i)
+
+        # Evaluate agent.
+        if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
+            eval_observation, _ = env.reset()
+            from utils.plot_utils import bfs, plot_points, plot_replay, calculate_all_cells
+            all_cells = calculate_all_cells(env)
+            all_cells = [env.unwrapped.ij_to_xy(cell) for cell in all_cells]
+            all_cells = np.array(all_cells)
+
+
+        #     # renders = []
+            eval_metrics = {}
+            overall_metrics = defaultdict(list)
+            task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
+            num_tasks = len(task_infos)
+            for task_id in tqdm.trange(1, num_tasks + 1):
+                goal_ob = env.unwrapped.task_infos[env.unwrapped.cur_task_id - 1]['goal_ij']
+                goal_ob = env.unwrapped.ij_to_xy(goal_ob)
+                goal_ob = np.array(goal_ob)
+                goal_xy = goal_ob[:2]
+
+                ob, _ = env.reset()
+                low_x_bound = all_cells[:,0].min()
+                high_x_bound = all_cells[:,0].max()
+                low_y_bound = all_cells[:,1].min()
+                high_y_bound = all_cells[:,1].max()
+
+                x_to_plot = np.linspace(low_x_bound, high_x_bound / 1.02, 200)
+                y_to_plot = np.linspace(low_y_bound, high_y_bound / 1.02, 200)
+                xv, yv = np.meshgrid(x_to_plot, y_to_plot)
+                grid_points = np.stack([xv.flatten(), yv.flatten()], axis=-1)
+
+                mult_observations = jnp.tile(ob[None], (grid_points.shape[0],1))
+                mult_observations = mult_observations.at[:, :2].set(grid_points)
+                goal_xy_mult = jnp.tile((goal_xy)[None], (grid_points.shape[0],1))
+
+                rng = jax.random.PRNGKey(0)
+                curr_rng, rng = jax.random.split(rng)
+                actions = agent.sample_actions(observations=mult_observations, goals=goal_xy_mult, seed=curr_rng)
+
+                q_pred = agent.network.select('critic')(
+                    mult_observations, goals=goal_xy_mult, actions=actions
+                )
+
+                pred = network.select('value')(
+                    observations=grid_points, goals=goal_xy_mult
+                )
+
+                if config['critic_loss_type'] == 'squared':
+                    value_loss_eval = jnp.square(pred - q_pred).mean()
+                elif config['critic_loss_type'] == 'bce':
+                    log_pred = jax.nn.log_sigmoid(pred)
+                    log_not_pred = jax.nn.log_sigmoid(-pred)
+
+                    q_pred = jax.nn.sigmoid(q_pred)
+                    value_loss_eval = -(q_pred * log_pred + (1 - q_pred) * log_not_pred).mean(axis=0)
+
+                eval_metrics.update({
+                    f'evaluation/task_{task_id}_value_loss_sum': value_loss_eval.sum(),
+                    f'evaluation/task_{task_id}_q_pred_mean': q_pred.mean(),
+                    f'evaluation/task_{task_id}_q_pred_std': q_pred.std(),
+                    f'evaluation/task_{task_id}_value_pred_mean': pred.mean(),
+                    f'evaluation/task_{task_id}_value_pred_std': pred.std(),
+                })
+
+                pred = pred.mean(axis=0)
+                q_pred = q_pred.mean(axis=0)
+
+                import matplotlib.pyplot as plt
+                plt.clf()
+                plt.scatter(grid_points[:,0], grid_points[:,1], c=pred, s=1, cmap='plasma')
+                plt.colorbar()
+                plt.scatter(all_cells[:,0], all_cells[:,1], c='gray', s=10)
+                plt.scatter(goal_ob[0], goal_ob[1], c='red', s=50, marker='*')
+                plt.savefig(f'{FLAGS.save_dir}/task_{task_id}_value.png', dpi=300)
+
+                wandb.log({f'evaluation/task_{task_id}_value': wandb.Image(f'{FLAGS.save_dir}/task_{task_id}_value.png')}, step=i)
+                os.remove(f'{FLAGS.save_dir}/task_{task_id}_value.png')
+
+                plt.clf()
+                plt.scatter(grid_points[:,0], grid_points[:,1], c=q_pred, s=1, cmap='plasma')
+                plt.colorbar()
+                plt.scatter(all_cells[:,0], all_cells[:,1], c='gray', s=10)
+                plt.scatter(goal_ob[0], goal_ob[1], c='red', s=50, marker='*')
+                plt.savefig(f'{FLAGS.save_dir}/task_{task_id}_q_pred.png', dpi=300)
+                
+                wandb.log({f'evaluation/task_{task_id}_q_pred': wandb.Image(f'{FLAGS.save_dir}/task_{task_id}_q_pred.png')}, step=i)
+                os.remove(f'{FLAGS.save_dir}/task_{task_id}_q_pred.png')
+
+                plt.clf()
+                plt.scatter(grid_points[:,0], grid_points[:,1], c=value_loss_eval, s=1, cmap='plasma')
+                plt.colorbar()
+                plt.scatter(all_cells[:,0], all_cells[:,1], c='gray', s=10)
+                plt.scatter(goal_ob[0], goal_ob[1], c='red', s=50, marker='*')
+                plt.savefig(f'{FLAGS.save_dir}/task_{task_id}_abs_diff.png', dpi=300)
+                wandb.log({f'evaluation/task_{task_id}_abs_diff': wandb.Image(f'{FLAGS.save_dir}/task_{task_id}_abs_diff.png')}, step=i)
+                os.remove(f'{FLAGS.save_dir}/task_{task_id}_abs_diff.png')
+
+
+
+            #     all_cells_temp = all_cells.copy()
+            #     # replace first two
+            #     all_cells_temp = all_cells_temp.set(0, goal_ob[0])
+            #     task_name = task_infos[task_id - 1]['task_name']
+            #     eval_info, trajs, cur_renders = evaluate_gcfql(
+            #         agent=agent,
+            #         env=env,
+            #         env_name=FLAGS.env_name,
+            #         goal_conditioned=True,
+            #         task_id=task_id,
+            #         config=config,
+            #         num_eval_episodes=FLAGS.eval_episodes,
+            #         num_video_episodes=FLAGS.video_episodes,
+            #         video_frame_skip=FLAGS.video_frame_skip,
+            #         eval_temperature=FLAGS.eval_temperature,
+            #         eval_gaussian=FLAGS.eval_gaussian,
+            #     )
+            #     renders.extend(cur_renders)
+
+
+            #     metric_names = ['success']
+            #     eval_metrics.update(
+            #         {f'evaluation/{task_name}_{k}': v for k, v in eval_info.items() if k in metric_names}
+            #     )
+            #     for k, v in eval_info.items():
+            #         if k in metric_names:
+            #             overall_metrics[k].append(v)
+            # for k, v in overall_metrics.items():
+            #     eval_metrics[f'evaluation/overall_{k}'] = np.mean(v)
+
+            # if FLAGS.video_episodes > 0:
+            #     if FLAGS.use_wandb:
+            #         video = get_wandb_video(renders=renders, n_cols=5)
+            #         eval_metrics['video'] = video
+            #     else:
+            #         eval_metrics['video'] = None
+
+            # if FLAGS.use_wandb:
+                wandb.log(eval_metrics, step=i)
+            # eval_logger.log(eval_metrics, step=i)
+
+        # Save agent.
+        if i % FLAGS.save_interval == 0:
+            save_agent(agent, FLAGS.save_dir, i)
+
+        if FLAGS.dataset_replace_interval != 0 and i % FLAGS.dataset_replace_interval == 0 and len(datasets) > 1:
+            dataset_idx = (dataset_idx + 1) % len(datasets)
+            train_dataset, val_dataset = make_env_and_datasets(
+                FLAGS.env_name, dataset_path=datasets[dataset_idx], dataset_only=True, cur_env=env
+            )
+            train_dataset = dataset_class(Dataset.create(**train_dataset), config)
+            val_dataset = dataset_class(Dataset.create(**val_dataset), config)
+
+    train_logger.close()
+    eval_logger.close()
+
+    # if FLAGS.json_path is not None:
+    #     with open(FLAGS.json_path, 'rb') as f:
+    #         paths = json.load(f)
+
+        
+    #     if FLAGS.env_name in paths:
+    #         path = paths[FLAGS.env_name]
+    #         path[FLAGS.run_group] = {
+    #             'dir': FLAGS.save_dir,
+    #             'file': f'data-{FLAGS.offline_steps}.npz'
+    #         }
+
+    #         with open(FLAGS.json_path, 'w') as f:
+    #             json.dump(paths, f, indent=4)
+
+if __name__ == '__main__':
+    app.run(main)

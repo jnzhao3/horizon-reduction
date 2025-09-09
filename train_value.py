@@ -293,7 +293,7 @@ def main(_):
         run_group = 'no_wandb'
 
     ##=========== LOG MESSAGES TO ERR AND SLACK ===========##
-    start_time = time.time()
+    # start_time = time.time()
     animal = get_animal()
     print(f"\n{animal}\n", exp_name)
     print("\n\n", info, file=sys.stderr)
@@ -325,11 +325,11 @@ def main(_):
         datasets = datasets[: FLAGS.num_datasets]
     dataset_idx = 0
     env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx])
-    time_elapsed = time.time() - start_time
-    print(f'Environment and datasets ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
+    # time_elapsed = time.time() - start_time
+    # print(f'Environment and datasets ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
     ##=========== PREPARE DATASETS ===========##
-    start_time = time.time()
+    # start_time = time.time()
     N = int(FLAGS.train_data_size)
     if N > 0:
         new_train_dataset = {}
@@ -373,10 +373,10 @@ def main(_):
     dataset_class = dataset_class_dict[config['dataset_class']]
     train_dataset = dataset_class(Dataset.create(**train_dataset), config)
     val_dataset = dataset_class(Dataset.create(**val_dataset), config)
-    time_elapsed = time.time() - start_time
-    print(f'Datasets ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
+    # time_elapsed = time.time() - start_time
+    # print(f'Datasets ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
-    start_time = time.time()
+    # start_time = time.time()
     example_batch = train_dataset.sample(1)
 
     agent_class = agents[config['agent_name']]
@@ -398,11 +398,11 @@ def main(_):
     first_time = time.time()
     last_time = time.time()
 
-    time_elapsed = time.time() - start_time
-    print(f'Agent ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
+    # time_elapsed = time.time() - start_time
+    # print(f'Agent ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
     ##=========== CREATE NEW VALUE FUNCTION NETWORK ===========##
-    start_time = time.time()
+    # start_time = time.time()
     if 'oracle_reps' in example_batch:
         goal_dim = example_batch['oracle_reps'].shape[-1]
         ex_goals = example_batch['oracle_reps']
@@ -427,8 +427,8 @@ def main(_):
     network_params = network_def.init(init_rng, **network_args)['params']
     network = TrainState.create(network_def, network_params, tx=network_tx)
 
-    time_elapsed = time.time() - start_time
-    print(f'Value network ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
+    # time_elapsed = time.time() - start_time
+    # print(f'Value network ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
     # @jax.jit
     # def value_loss_helper(batch, grad_params, rng):
@@ -485,7 +485,7 @@ def main(_):
     #     return value_loss, info
 
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        start_time = time.time()
+        # start_time = time.time()
         batch = train_dataset.sample(config['batch_size'])
         batch = jax.tree_util.tree_map(lambda x: jnp.asarray(x), batch)
         # agent, update_info = agent.update(batch)
@@ -504,12 +504,12 @@ def main(_):
         # network = new_network
         # # network = network.replace(network=new_network, rng=new_rng)
         # update_info = {**info}
-        time_elapsed = time.time() - start_time
-        print(f'Iteration {i} done after {time_elapsed:.2f} seconds.', file=sys.stderr)
+        # time_elapsed = time.time() - start_time
+        # print(f'Iteration {i} done after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
-            start_time = time.time()
+            # start_time = time.time()
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
             val_batch = val_dataset.sample(config['batch_size'])
@@ -529,13 +529,13 @@ def main(_):
                 wandb.log(train_metrics, step=i)
             train_logger.log(train_metrics, step=i)
 
-            time_elapsed = time.time() - start_time
-            print(f'Logging {i} done after {time_elapsed:.2f} seconds.', file=sys.stderr)
+            # time_elapsed = time.time() - start_time
+            # print(f'Logging {i} done after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
         # Evaluate agent.
         if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
 
-            start_time = time.time()
+            # start_time = time.time()
             eval_observation, _ = env.reset()
             from utils.plot_utils import bfs, plot_points, plot_replay, calculate_all_cells
             all_cells = calculate_all_cells(env)
@@ -549,11 +549,11 @@ def main(_):
             task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
             num_tasks = len(task_infos)
 
-            time_elapsed = time.time() - start_time
-            print(f'Evaluation setup done after {time_elapsed:.2f} seconds.', file=sys.stderr)
+            # time_elapsed = time.time() - start_time
+            # print(f'Evaluation setup done after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
             for task_id in tqdm.trange(1, num_tasks + 1):
-                start_time = time.time()
+                # start_time = time.time()
                 goal_ob = env.unwrapped.task_infos[env.unwrapped.cur_task_id - 1]['goal_ij']
                 goal_ob = env.unwrapped.ij_to_xy(goal_ob)
                 goal_ob = np.array(goal_ob)
@@ -649,8 +649,8 @@ def main(_):
 
                 wandb.log(eval_metrics, step=i)
                 
-                time_elapsed = time.time() - start_time
-                print(f'Evaluated task {task_id} after {time_elapsed:.2f} seconds.', file=sys.stderr)
+                # time_elapsed = time.time() - start_time
+                # print(f'Evaluated task {task_id} after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
         # Save agent.
         if i % FLAGS.save_interval == 0:

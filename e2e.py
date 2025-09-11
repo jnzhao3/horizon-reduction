@@ -7,13 +7,14 @@ from collections import defaultdict
 import sys
 
 import numpy as np
+import jax
+import jax.numpy as jnp
 import tqdm
 import wandb
 from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
-# from envs.env_utils import make_env_and_datasets
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.evaluation import evaluate_gcfql
 from utils.flax_utils import restore_agent, save_agent
@@ -24,27 +25,33 @@ import numpy as np
 import ogbench
 
 from utils.datasets import Dataset
-# from main import make_env_and_datasets
 from datafuncs.datafuncs_utils import clip_dataset, make_env_and_datasets
 
 FLAGS = flags.FLAGS
 
+##=========== WANDB SPECIFICATION ===========##
 flags.DEFINE_string('run_group', 'Debug', 'Run group.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
+flags.DEFINE_bool('wandb_alerts', True, 'Enable Weights & Biases alerts.')
+
+##=========== ENVIRONMENT SPECIFICATION ===========##
 flags.DEFINE_string('env_name', 'puzzle-4x5-play-oraclerep-v0', 'Environment (dataset) name.')
 flags.DEFINE_string('dataset_dir', None, 'Dataset directory.')
 flags.DEFINE_integer('train_data_size', None, 'Size of training data to use (None for full dataset).')
 
+##=========== AGENT SPECIFICATION ===========##
+config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
 flags.DEFINE_string('save_dir', 'exp/', 'Save directory.')
 flags.DEFINE_string('restore_path', None, 'Restore path.')
 flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
+##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 5000000, 'Number of offline steps.')
 flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
-# flags.DEFINE_string('json_path', None, 'Path to JSON file with additional parameters.')
 
+##=========== EVALUATION HYPERPARAMETERS ===========##
 flags.DEFINE_integer('eval_episodes', 15, 'Number of episodes for each task.')
 flags.DEFINE_float('eval_temperature', 0, 'Actor temperature for evaluation.')
 flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.')
@@ -53,9 +60,6 @@ flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
 
 ##=========== DATA COLLECTION FLAGS ===========##
 config_flags.DEFINE_config_file('data_option', None, 'Data function option (e.g., new_buffer, combine_with).')
-
-flags.DEFINE_bool('wandb_alerts', True, 'Enable Weights & Biases alerts.')
-config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
 
 def print_info(exp_name, info):
     animal = get_animal()
@@ -201,14 +205,11 @@ def main(_):
     train_logger.close()
     eval_logger.close()
 
-    import ipdb; ipdb.set_trace()
     ##=========== ADD NEW DATA ===========##
-    
-    import ipdb; ipdb.set_trace()
     datafunc = datafuncs.get(FLAGS.data_option['method_name'], None)
     assert datafunc is not None, f'unknown data option {FLAGS.data_option}'
-    replay_buffer = datafunc.create(train_dataset=train_dataset, config=FLAGS.data_option, env=env)
-    print(f'new replay buffer size: {len(replay_buffer)}')
+    replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config)
+    print(f'new replay buffer size: {replay_buffer.size}')
 
     ##=========== FURTHER TRAINING ===========##
     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))
@@ -218,6 +219,8 @@ def main(_):
 
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         batch = replay_buffer.sample(config['batch_size'])
+        # batch = jax.tree_map(lambda x: np.array(x), batch)  # ensure numpy arrays
+        batch = jax.tree_util.tree_map(lambda x: jnp.array(x), batch)  # ensure numpy arrays
         agent, update_info = agent.update(batch)
 
         # Log metrics.

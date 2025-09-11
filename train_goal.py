@@ -17,17 +17,22 @@ from ml_collections import config_flags
 from agents import agents
 # from envs.env_utils import make_env_and_datasets
 from utils.datasets import Dataset, GCDataset, HGCDataset
-from utils.evaluation import evaluate_gcfql
+# from utils.evaluation import evaluate_gcfql
 from utils.flax_utils import ModuleDict, restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb, get_animal
-from utils.networks import GCValue
+from utils.networks import GCValue, ActorVectorField
 from utils.flax_utils import TrainState
 import optax
 import jax.numpy as jnp
 from functools import partial
-from utils.samplers import to_oracle_rep
+# from utils.samplers import to_oracle_rep
 from ogbench.relabel_utils import add_oracle_reps
 import matplotlib.pyplot as plt
+import numpy as np
+import ogbench
+
+from utils.datasets import Dataset
+
 
 FLAGS = flags.FLAGS
 
@@ -57,107 +62,70 @@ flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
 
 flags.DEFINE_bool('use_wandb', True, 'Use Weights & Biases for logging.')
 flags.DEFINE_bool('wandb_alerts', True, 'Enable Weights & Biases alerts.')
-flags.DEFINE_string('q_pred_calc', 'sample', 'Method for calculating Q predictions (sample or mean).') # batch
+# flags.DEFINE_string('q_pred_calc', 'sample', 'Method for calculating Q predictions (sample or mean).') # batch
 
 config_flags.DEFINE_config_file('agent', 'agents/sharsa.py', lock_config=False)
 
-import numpy as np
-import ogbench
+from train_value import make_env_and_datasets
 
-from utils.datasets import Dataset
+@partial(jax.jit, static_argnames=('goal_proposer_type'))
+def train_step(state, batch, rng, goal_proposer_type):
 
+    if goal_proposer_type == 'default':
+        def loss_fn(params, rng_in):
+            assert 'low_actor_goals' in batch, "Batch must contain 'low_actor_goals' for goal proposer training."
+            batch_size, goal_dim = batch['low_actor_goals'].shape
+            rng, x_rng, t_rng = jax.random.split(rng_in, 3)
 
-def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_env=None):
-    """Make OGBench environment and datasets.
+            x_0 = jax.random.normaal(x_rng, (batch_size, goal_dim))
+            x_1 = batch['low_actor_goals']
+            t = jax.random.uniform(t_rng, (batch_size, 1))
+            x_t = (1 - t) * x_0 + t * x_1
+            vel = x_1 - x_0
 
-    Args:
-        dataset_name: Name of the environment (dataset).
-        dataset_path: Path to the dataset file.
-        dataset_only: Whether to return only the datasets.
-        cur_env: Current environment (only used when `dataset_only` is True).
-
-    Returns:
-        A tuple of the environment (if `dataset_only` is False), training dataset, and validation dataset.
-    """
-    if dataset_only:
-        train_dataset, val_dataset = ogbench.make_env_and_datasets(
-            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env, add_info=True
-        )
-    else:
-        env, train_dataset, val_dataset = ogbench.make_env_and_datasets(
-            dataset_name, dataset_path=dataset_path, compact_dataset=True, dataset_only=dataset_only, cur_env=cur_env, add_info=True
-        )
-
-    add_oracle_reps(env.spec.id, env, train_dataset)
-    add_oracle_reps(env.spec.id, env, val_dataset)
-
-    train_dataset = Dataset.create(**train_dataset)
-    val_dataset = Dataset.create(**val_dataset)
-
-    # Clip dataset actions.
-    eps = 1e-5
-    train_dataset = train_dataset.copy(
-        add_or_replace=dict(actions=np.clip(train_dataset['actions'], -1 + eps, 1 - eps))
-    )
-    val_dataset = val_dataset.copy(add_or_replace=dict(actions=np.clip(val_dataset['actions'], -1 + eps, 1 - eps)))
-
-    if dataset_only:
-        return train_dataset, val_dataset
-    else:
-        env.reset()
-        return env, train_dataset, val_dataset
-    
-ACTIONS_MODE_SAMPLE = 0
-ACTIONS_MODE_BATCH  = 1
-    
-def bce_loss(pred_logits, target_probs):
-    log_pred = jax.nn.log_sigmoid(pred_logits)
-    log_not_pred = jax.nn.log_sigmoid(-pred_logits)
-    bce = -(target_probs * log_pred + (1 - target_probs) * log_not_pred)
-    return bce.mean(), bce
-
-@partial(jax.jit, static_argnames=('actions_mode', 'loss_type'))
-def train_step(state, agent, batch, rng, actions_mode, loss_type):
-
-    def loss_fn(params, rng_in):
-        rng_in, rng_actions = jax.random.split(rng_in)
-
-        def sample_actions():
-            return agent.sample_actions(
+            pred = state.select('goal_proposer')(
                 observations=batch['observations'],
-                goals=batch['value_goals'],
-                seed=rng_actions
+                actions=x_t,
+                times=t,
+                params=params
             )
-        actions = jax.lax.switch(
-            actions_mode,
-            [sample_actions, lambda: batch['actions']]
-        )
 
-        q_pred = agent.network.select('critic')(
-            batch['observations'], goals=batch['value_goals'], actions=actions
-        )
+            bc_flow_loss = jnp.mean((pred - vel) ** 2)
 
-        # Value prediction V(s,g) from THIS state's params
-        v_pred = state.select('value')(
-            observations=batch['oracle_reps'],  # precomputed; no env calls here
-            goals=batch['value_goals'],
-            params=params
-        )
+            info = {
+                'bc_flow_loss': bc_flow_loss,
+            }
+            return bc_flow_loss, info
+        
+    elif goal_proposer_type == 'actor-gc':
+        def loss_fn(params, rng_in):
+            assert 'low_actor_goals' in batch, "Batch must contain 'low_actor_goals' for goal proposer training."
+            batch_size, goal_dim = batch['low_actor_goals'].shape
+            rng, x_rng, t_rng = jax.random.split(rng_in, 3)
 
-        if loss_type == 'squared':
-            loss = jnp.mean(jnp.square(v_pred - q_pred))
-        else:  # 'bce'
-            loss, _ = bce_loss(v_pred, jax.nn.sigmoid(q_pred))
-            loss = loss.mean()
+            x_0 = jax.random.normaal(x_rng, (batch_size, goal_dim))
+            x_1 = batch['low_actor_goals']
+            t = jax.random.uniform(t_rng, (batch_size, 1))
+            x_t = (1 - t) * x_0 + t * x_1
+            vel = x_1 - x_0
 
-        info = {
-            'value_loss': loss,
-            'q_pred_mean': jnp.mean(q_pred),
-            'q_pred_std': jnp.std(q_pred),
-            'value_pred_mean': jnp.mean(v_pred),
-            'value_pred_std': jnp.std(v_pred),
-        }
-        return loss, info
+            pred = state.select('goal_proposer')(
+                observations=batch['observations'],
+                goals=batch['actor_goals'],
+                actions=x_t,
+                times=t,
+                params=params
+            )
+
+            bc_flow_loss = jnp.mean((pred - vel) ** 2)
+
+            info = {
+                'bc_flow_loss': bc_flow_loss,
+            }
+            return bc_flow_loss, info
+    else:
+        raise NotImplementedError(f"Unknown goal proposer type: {goal_proposer_type}")
+        
     
     (loss, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng)
     updates, new_opt_state = state.tx.update(grads, state.opt_state, state.params)
@@ -165,115 +133,88 @@ def train_step(state, agent, batch, rng, actions_mode, loss_type):
     new_state = state.replace(params=new_params, opt_state=new_opt_state)
     return new_state, info
 
-@partial(jax.jit, static_argnames=('actions_mode', 'loss_type'))
-def val_step(state, agent, batch, rng, actions_mode, loss_type):
+@partial(jax.jit, static_argnames=('goal_proposer_type'))
+def val_step(state, batch, rng, goal_proposer_type):
 
-    def loss_fn(params, rng_in):
-        rng_in, rng_actions = jax.random.split(rng_in)
+    if goal_proposer_type == 'default':
+        def loss_fn(params, rng_in):
+            assert 'low_actor_goals' in batch, "Batch must contain 'low_actor_goals' for goal proposer training."
+            batch_size, goal_dim = batch['low_actor_goals'].shape
+            rng, x_rng, t_rng = jax.random.split(rng_in, 3)
 
-        def sample_actions():
-            return agent.sample_actions(
+            x_0 = jax.random.normaal(x_rng, (batch_size, goal_dim))
+            x_1 = batch['low_actor_goals']
+            t = jax.random.uniform(t_rng, (batch_size, 1))
+            x_t = (1 - t) * x_0 + t * x_1
+            vel = x_1 - x_0
+
+            pred = state.select('goal_proposer')(
                 observations=batch['observations'],
-                goals=batch['value_goals'],
-                seed=rng_actions
+                actions=x_t,
+                times=t,
+                params=params
             )
-        actions = jax.lax.switch(
-            actions_mode,
-            [sample_actions, lambda: batch['actions']]
-        )
 
-        q_pred = agent.network.select('critic')(
-            batch['observations'], goals=batch['value_goals'], actions=actions
-        )
+            bc_flow_loss = jnp.mean((pred - vel) ** 2)
 
-        # Value prediction V(s,g) from THIS state's params
-        v_pred = state.select('value')(
-            observations=batch['oracle_reps'],  # precomputed; no env calls here
-            goals=batch['value_goals'],
-            params=params
-        )
+            info = {
+                'bc_flow_loss': bc_flow_loss,
+            }
+            return bc_flow_loss, info
+        
+    elif goal_proposer_type == 'actor-gc':
+        def loss_fn(params, rng_in):
+            assert 'low_actor_goals' in batch, "Batch must contain 'low_actor_goals' for goal proposer training."
+            batch_size, goal_dim = batch['low_actor_goals'].shape
+            rng, x_rng, t_rng = jax.random.split(rng_in, 3)
 
-        if loss_type == 'squared':
-            loss = jnp.mean(jnp.square(v_pred - q_pred))
-        else:  # 'bce'
-            loss, _ = bce_loss(v_pred, jax.nn.sigmoid(q_pred))
-            loss = loss.mean()
+            x_0 = jax.random.normaal(x_rng, (batch_size, goal_dim))
+            x_1 = batch['low_actor_goals']
+            t = jax.random.uniform(t_rng, (batch_size, 1))
+            x_t = (1 - t) * x_0 + t * x_1
+            vel = x_1 - x_0
 
-        info = {
-            'value_loss': loss,
-            'q_pred_mean': jnp.mean(q_pred),
-            'q_pred_std': jnp.std(q_pred),
-            'value_pred_mean': jnp.mean(v_pred),
-            'value_pred_std': jnp.std(v_pred),
-        }
-        return loss, info
+            pred = state.select('goal_proposer')(
+                observations=batch['observations'],
+                goals=batch['actor_goals'],
+                actions=x_t,
+                times=t,
+                params=params
+            )
+
+            bc_flow_loss = jnp.mean((pred - vel) ** 2)
+
+            info = {
+                'bc_flow_loss': bc_flow_loss,
+            }
+            return bc_flow_loss, info
+    else:
+        raise NotImplementedError(f"Unknown goal proposer type: {goal_proposer_type}")
     
-    # (loss, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng)
     (loss, info) = loss_fn(state.params, rng)
-    # updates, new_opt_state = state.tx.update(grads, state.opt_state, state.params)
-    # new_params = optax.apply_updates(state.params, updates)
-    # new_state = state.replace(params=new_params, opt_state=new_opt_state)
-    # return new_state, info
     return loss, info
 
-@partial(jax.jit, static_argnames=('loss_type'))
-def eval_step(state, agent, observations, goals, oracle_reps, rng, loss_type):
+@jax.jit
+def propose_goals(network, observations, goals, rng):
+    goal_dim = goals.shape[-1]
+    x = jax.random.normal(rng, (observations.shape[0], goal_dim))
+    for i in range(network.config['flow_steps']):
+        t = jnp.full((*observations.shape[:-1], 1), i / network.config['flow_steps'])
+        if network.config['goal_proposer_type'] == 'default':
+            vels = network.network.select('goal_proposer')(observations, actions=x, times=t)
+            # still need to pass in the goals to make the function happy
+        else:
+            vels = network.network.select('goal_proposer')(observations, actions=x, goals=goals, times=t)
+        x = x + vels / network.config['flow_steps']
 
-    def loss_fn(params, rng_in):
-        rng_in, rng_actions = jax.random.split(rng_in)
-        batch = {'observations': observations, 'value_goals': goals, 'oracle_reps': oracle_reps}
+@partial(jax.jit, static_argnames=('goal_proposer_type'))
+def eval_step(state, observations, rng, goal_proposer_type, actor_goals=None):
+    batch = {'observations': observations, 'actor_goals': actor_goals}
 
-        def sample_actions():
-            return agent.sample_actions(
-                observations=batch['observations'],
-                goals=batch['value_goals'],
-                seed=rng_actions
-            )
-        # actions = jax.lax.switch(
-        #     actions_mode,
-        #     [sample_actions, lambda: batch['actions']]
-        # )
-        actions = sample_actions()
-
-        q_pred = agent.network.select('critic')(
-            batch['observations'], goals=batch['value_goals'], actions=actions
-        )
-
-        # Value prediction V(s,g) from THIS state's params
-        v_pred = state.select('value')(
-            observations=batch['oracle_reps'],  # precomputed; no env calls here
-            goals=batch['value_goals'],
-            params=params
-        )
-
-        if loss_type == 'squared':
-            # loss = jnp.mean(jnp.square(v_pred - q_pred))
-            value_loss_per_point = jnp.square(v_pred - q_pred)
-            loss = value_loss_per_point.mean()
-        else:  # 'bce'
-            # loss = jnp.mean(bce_loss(v_pred, jax.nn.sigmoid(q_pred)))
-            # value_loss_per_point = bce_loss(v_pred, jax.nn.sigmoid(q_pred))
-            # loss = value_loss_per_point.mean()
-            loss, value_loss_per_point = bce_loss(v_pred, jax.nn.sigmoid(q_pred))
-
-        info = {
-            'value_loss': loss,
-            'q_pred_mean': jnp.mean(q_pred),
-            'q_pred_std': jnp.std(q_pred),
-            'value_pred_mean': jnp.mean(v_pred),
-            'value_pred_std': jnp.std(v_pred),
-            'pred': v_pred,
-            'q_pred': q_pred,
-            'value_loss_per_point': value_loss_per_point,
-        }
-        return loss, info
+    # TODO: implement this
     
     # (loss, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng)
     (loss, info) = loss_fn(state.params, rng)
-    # updates, new_opt_state = state.tx.update(grads, state.opt_state, state.params)
-    # new_params = optax.apply_updates(state.params, updates)
-    # new_state = state.replace(params=new_params, opt_state=new_opt_state)
-    # return new_state, info
     return loss, info
 
 def main(_):
@@ -409,14 +350,17 @@ def main(_):
     else:
         goal_dim = example_batch['observations'].shape[-1]
         ex_goals = example_batch['observations']
-    value_def = GCValue(
-        hidden_dims=config['value_hidden_dims'],
+    goal_proposer_def = ActorVectorField(
+        hidden_dims=config['actor_hidden_dims'],
+        action_dim=goal_dim, # TODO: double check that
         layer_norm=config['layer_norm'],
-        num_ensembles=config['num_qs'],
     )
+    ex_observations = example_batch['observations']
+    ex_actions = example_batch['actions']
+    ex_times = ex_actions[..., :1]
 
     network_info = dict(
-        value = (value_def, (ex_goals, ex_goals, None))
+        goal_proposer = (goal_proposer_def, (ex_observations, ex_goals, ex_goals, ex_times))
     )
     networks = {k: v[0] for k,v in network_info.items()}
     network_args = {k: v[1] for k,v in network_info.items()}
@@ -427,83 +371,16 @@ def main(_):
     network_params = network_def.init(init_rng, **network_args)['params']
     network = TrainState.create(network_def, network_params, tx=network_tx)
 
-    # time_elapsed = time.time() - start_time
-    # print(f'Value network ready after {time_elapsed:.2f} seconds.', file=sys.stderr)
-
-    # @jax.jit
-    # def value_loss_helper(batch, grad_params, rng):
-    #     pred = network.select('value')(
-    #         observations=batch['observations'], goals=batch['value_goals'], params=grad_params
-    #     )
-    #     return pred
-    
-    # @jax.jit
-    # def value_loss_helper2(batch, actions, grad_params, rng):
-    #     q_pred = agent.network.select('critic')(
-    #         batch['observations'], goals=batch['value_goals'], actions=actions
-    #     )
-    #     return q_pred
-
-
-    # def value_loss(batch, grad_params, rng):
-    #     # pred = network.select('value')(
-    #     #     observations=batch['observations'], goals=batch['value_goals'], params=grad_params
-    #     # )
-        
-
-    #     if FLAGS.q_pred_calc == 'sample':
-    #         actions = agent.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
-    #     elif FLAGS.q_pred_calc == 'batch':
-    #         actions = batch['actions']
-        
-
-    #     # q_pred = agent.network.select('critic')(
-    #         # batch['observations'], goals=batch['value_goals'], actions=actions
-    #     # )
-    #     q_pred = value_loss_helper2(batch, actions, grad_params, rng)
-
-    #     batch['observations'] = to_oracle_rep(batch['observations'], env)
-    #     pred = value_loss_helper(batch, grad_params, rng)
-
-    #     if config['critic_loss_type'] == 'squared':
-    #         value_loss = jnp.square(pred - q_pred).mean()
-    #     elif config['critic_loss_type'] == 'bce':
-    #         log_pred = jax.nn.log_sigmoid(pred)
-    #         log_not_pred = jax.nn.log_sigmoid(-pred)
-
-    #         q_pred = jax.nn.sigmoid(q_pred)
-    #         value_loss = -(q_pred * log_pred + (1 - q_pred) * log_not_pred).mean()
-
-    #     info = {
-    #         'value_loss': value_loss,
-    #         'q_pred_mean': q_pred.mean(),
-    #         'q_pred_std': q_pred.std(),
-    #         'value_pred_mean': pred.mean(),
-    #         'value_pred_std': pred.std(),
-    #     }
-
-    #     return value_loss, info
-
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         # start_time = time.time()
         batch = train_dataset.sample(config['batch_size'])
         batch = jax.tree_util.tree_map(lambda x: jnp.asarray(x), batch)
-        # agent, update_info = agent.update(batch)
-        # new_rng, rng = jax.random.split(rng)
-        new_rng, step_rng = jax.random.split(rng)
-        actions_mode = 0
-        actions_mode = ACTIONS_MODE_SAMPLE if FLAGS.q_pred_calc == 'sample' else ACTIONS_MODE_BATCH
-        network, update_info = train_step(
-            network, agent, batch, step_rng, actions_mode, config['critic_loss_type']
-        )
 
-        # def loss_fn(grad_params):
-        #     return value_loss(batch, grad_params, rng=new_rng)
-        
-        # new_network, info = network.apply_loss_fn(loss_fn)
-        # network = new_network
-        # # network = network.replace(network=new_network, rng=new_rng)
-        # update_info = {**info}
+        new_rng, step_rng = jax.random.split(rng)
+        network, update_info = train_step(
+            state=network, batch=batch, rng=step_rng, goal_proposer_type=config['goal_proposer_type']
+        )
+            
         # time_elapsed = time.time() - start_time
         # print(f'Iteration {i} done after {time_elapsed:.2f} seconds.', file=sys.stderr)
 
@@ -514,9 +391,7 @@ def main(_):
 
             val_batch = val_dataset.sample(config['batch_size'])
             val_batch = jax.tree_util.tree_map(lambda x: jnp.asarray(x), val_batch)
-            # _, val_info = agent.total_loss(val_batch, grad_params=None)
-            # train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
-            # _, val_info = value_loss(val_batch, network.params, rng=new_rng)
+
             _, val_info = val_step(
                 network, agent, val_batch, new_rng, actions_mode, config['critic_loss_type']
             )
@@ -576,44 +451,16 @@ def main(_):
 
                 rng = jax.random.PRNGKey(0)
                 curr_rng, rng = jax.random.split(rng)
-                # actions = agent.sample_actions(observations=mult_observations, goals=goal_xy_mult, seed=curr_rng)
-
-                # q_pred = agent.network.select('critic')(
-                #     mult_observations, goals=goal_xy_mult, actions=actions
-                # )
-
-                # pred = network.select('value')(
-                #     observations=grid_points, goals=goal_xy_mult
-                # )
-
-                # if config['critic_loss_type'] == 'squared':
-                #     value_loss_eval = jnp.square(pred - q_pred).mean()
-                # elif config['critic_loss_type'] == 'bce':
-                #     log_pred = jax.nn.log_sigmoid(pred)
-                #     log_not_pred = jax.nn.log_sigmoid(-pred)
-
-                #     q_pred = jax.nn.sigmoid(q_pred)
-                #     value_loss_eval = -(q_pred * log_pred + (1 - q_pred) * log_not_pred).mean(axis=0)
 
                 value_loss_eval, eval_info = eval_step(
                     network, agent, mult_observations, goal_xy_mult, grid_points, curr_rng, config['critic_loss_type']
                 )
                 value_loss_eval = value_loss_eval.item()
 
-                # eval_metrics.update({
-                #     f'evaluation/task_{task_id}_value_loss_sum': value_loss_eval.sum(),
-                #     f'evaluation/task_{task_id}_q_pred_mean': q_pred.mean(),
-                #     f'evaluation/task_{task_id}_q_pred_std': q_pred.std(),
-                #     f'evaluation/task_{task_id}_value_pred_mean': pred.mean(),
-                #     f'evaluation/task_{task_id}_value_pred_std': pred.std(),
-                # })
-
                 for k, v in eval_info.items():
                     if k != 'pred' and k != 'q_pred' and k != 'value_loss_per_point':
                         eval_metrics[f'evaluation/task_{task_id}_{k}'] = v
 
-                # pred = pred.mean(axis=0)
-                # q_pred = q_pred.mean(axis=0)
                 pred = eval_info['pred'].mean(axis=0)
                 q_pred = eval_info['q_pred'].mean(axis=0)
                 value_loss_per_point = eval_info['value_loss_per_point'].mean(axis=0)
@@ -654,16 +501,8 @@ def main(_):
 
         # Save agent.
         if i % FLAGS.save_interval == 0:
-            # save_agent(agent, FLAGS.save_dir, i)
             save_agent(network, FLAGS.save_dir, i)
 
-        # if FLAGS.dataset_replace_interval != 0 and i % FLAGS.dataset_replace_interval == 0 and len(datasets) > 1:
-        #     dataset_idx = (dataset_idx + 1) % len(datasets)
-        #     train_dataset, val_dataset = make_env_and_datasets(
-        #         FLAGS.env_name, dataset_path=datasets[dataset_idx], dataset_only=True, cur_env=env
-        #     )
-        #     train_dataset = dataset_class(Dataset.create(**train_dataset), config)
-        #     val_dataset = dataset_class(Dataset.create(**val_dataset), config)
 
     train_logger.close()
     eval_logger.close()

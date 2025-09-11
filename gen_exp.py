@@ -33,7 +33,8 @@ def parse(it):
             if isinstance(v, list):
                 v = ",".join(map(str, v))
             for s in suffix:
-                yield f"--{key}{sep}{v} ".replace("'", "") + s
+                # yield f"--{key}{sep}{v} ".replace("'", "") + s
+                yield f"--{key}{sep}{v} " + s
     else:
         if isinstance(value, str) and value[0] == '=':
             sep = ""
@@ -43,7 +44,8 @@ def parse(it):
         if isinstance(value, list):
             value = ",".join(map(str, value))
         for s in suffix:
-            yield f"--{key}{sep}{value} ".replace("'", "") + s
+            # yield f"--{key}{sep}{value} ".replace("'", "") + s
+            yield f"--{key}{sep}{value} " + s
 
 
 

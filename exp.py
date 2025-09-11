@@ -1115,3 +1115,77 @@ train_value2_3 = {
     },
     "date": "2025-09-07"
 }
+
+e2e_maze_1_1 = {
+    "script": "e2e.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "e2e_maze_1_1",
+        "seed": (0, 1),
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": 100000,
+        "save_dir": "../../scratch",
+        "offline_steps": 100,
+        "save_interval": 50,
+        "log_interval": 10,
+        "eval_interval": 50,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.subgoal_steps" : (50,100),
+        "json_path": "../jsons/data.json",
+        "agent.discount" : 0.995,
+        "agent.goal_proposer_type" : ("default","actor-gc"),
+        "data_option" : "datafuncs/combine_with.py",
+        "data_option.train_data_paths" : 
+                "'aorl/gcfql_main_maze3_5/sd000_1460317626035.s_27767445_102.20250903_082118_234.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1462948537011.s_27768212_222.20250903_103200_215.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd000_1436076103347.s_27767225_78.20250903_072451_934.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1433018375859.s_27768014_198.20250903_100607_083.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd000_1410219265718.s_27767146_54.20250903_062514_370.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1423283553971.s_27767875_174.20250903_095433_086.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd000_1453816609459.s_27767113_30.20250903_055039_644.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1461153812147.s_27767741_150.20250903_093412_478.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd000_1416582666931.s_27766912_6.20250903_045337_719.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1437168725686.s_27767521_126.20250903_085950_906.gcfql_main_maze3_5/data-2000000.npz'",
+        "data_option.train_data_sizes" : "100000,100000,100000,100000,100000,100000,100000,100000,100000,100000",
+    }
+}
+e2e_maze_1_2 = {
+    "script": "e2e.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "36:00:00",
+    "config": {
+        "run_group": "e2e_maze_1_2",
+        "seed": (0, 1),
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": 100000,
+        "save_dir": "../../scratch",
+        "offline_steps": 100,
+        "save_interval": 50,
+        "log_interval": 10,
+        "eval_interval": 50,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.subgoal_steps" : (50,100),
+        # "json_path": "../jsons/data.json",
+        "agent.discount" : 0.995,
+        "agent.goal_proposer_type" : ("default","actor-gc"),
+        "data_option" : "datafuncs/combine_with.py",
+        "data_option.train_data_paths" : "\"'aorl/gcfql_main_maze3_5/sd000_1460317626035.s_27767445_102.20250903_082118_234.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1462948537011.s_27768212_222.20250903_103200_215.gcfql_main_maze3_5/data-2000000.npz'\"",
+        "data_option.train_data_sizes" : "100000,100000",
+    }
+}
+
+# python3 e2e.py --run_group e2e_maze_1_2 --seed 1 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --save_dir ../../scratch --offline_steps 100 --save_interval 50 --log_interval 10 --eval_interval 50 --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer=True --agent.actor_hidden_dims 512,512,512,512 --agent.value_hidden_dims 512,512,512,512 --agent.batch_size 256 --agent.num_actions 8 --agent.num_qs 10 --agent.q_agg mean --agent.subgoal_steps 100 --json_path ../jsons/data.json --agent.discount 0.995 --agent.goal_proposer_type actor-gc --data_option datafuncs/combine_with.py --data_option.train_data_paths "aorl/gcfql_main_maze3_5/sd000_1460317626035.s_27767445_102.20250903_082118_234.gcfql_main_maze3_5/data-2000000.npz","aorl/gcfql_main_maze3_5/sd001_1462948537011.s_27768212_222.20250903_103200_215.gcfql_main_maze3_5/data-2000000.npz" --data_option.train_data_sizes 100000,100000
+
+# python3 e2e.py --run_group e2e_maze_1_2 --seed 1 --env_name humanoidmaze-medium-navigate-oraclerep-v0 --agent ../agents/gcfql.py --dataset_dir ../../scratch/data/humanoidmaze-medium-navigate-v0 --train_data_size 100000 --save_dir ../../scratch --offline_steps 100 --save_interval 50 --log_interval 10 --eval_interval 50 --agent.alpha 300 --agent.actor_type best-of-n --agent.train_goal_proposer=True --agent.actor_hidden_dims 512,512,512,512 --agent.value_hidden_dims 512,512,512,512 --agent.batch_size 256 --agent.num_actions 8 --agent.num_qs 10 --agent.q_agg mean --agent.subgoal_steps 100 --json_path ../jsons/data.json --agent.discount 0.995 --agent.goal_proposer_type actor-gc --data_option datafuncs/combine_with.py --data_option.train_data_paths "'aorl/gcfql_main_maze3_5/sd000_1460317626035.s_27767445_102.20250903_082118_234.gcfql_main_maze3_5/data-2000000.npz','aorl/gcfql_main_maze3_5/sd001_1462948537011.s_27768212_222.20250903_103200_215.gcfql_main_maze3_5/data-2000000.npz'" --data_option.train_data_sizes 100000,100000

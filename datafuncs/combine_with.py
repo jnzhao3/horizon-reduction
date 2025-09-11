@@ -70,7 +70,9 @@ class CombineWith:
         if len(config['train_data_keys']) > 0:
             assert False, 'train_data_keys not supported yet'
         else:
-            for path, size in zip(config['train_data_paths'], config['train_data_sizes']):
+            import datafuncs.data as data
+            train_data_paths = eval(f"data.{config['train_data_paths']}") 
+            for path, size in zip(train_data_paths, config['train_data_sizes']):
                 # load_dataset(dataset_path, ob_dtype=np.float32, action_dtype=np.float32, compact_dataset=False, add_info=False)
 
                 path = os.path.expanduser(os.path.join(config['dataset_dir'], path))
@@ -112,7 +114,7 @@ def get_config():
             # new_data_path='',  # path to new dataset to combine with
             # seed=0,
             train_data_keys=(),
-            train_data_paths=("a", "b"),
+            train_data_paths="gcfql_main_maze3_5",
             train_data_sizes=(),
             dataset_dir="../../scratch"
         )

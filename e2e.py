@@ -142,6 +142,8 @@ def main(_):
     N = int(FLAGS.train_data_size)
     train_dataset = clip_dataset(train_dataset, N)
 
+    train_dataset = to_jnp(train_dataset)
+
     # Initialize agent.
     random.seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
@@ -151,8 +153,8 @@ def main(_):
         'HGCDataset': HGCDataset,
     }
     dataset_class = dataset_class_dict[config['dataset_class']]
-    train_dataset = dataset_class(Dataset.create(**train_dataset), config)
-    val_dataset = dataset_class(Dataset.create(**val_dataset), config)
+    train_dataset = dataset_class(Dataset.create(**train_dataset, freeze=False), config)
+    val_dataset = dataset_class(Dataset.create(**val_dataset, freeze=False), config)
     example_batch = train_dataset.sample(1)
 
     agent_class = agents[config['agent_name']]
@@ -174,14 +176,14 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = to_jnp(train_dataset.sample(config['batch_size']))
+        batch = train_dataset.sample(config['batch_size'])
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            val_batch = val_dataset.sample(config['batch_size'])
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -209,6 +211,8 @@ def main(_):
     datafunc = datafuncs.get(FLAGS.data_option['method_name'], None)
     assert datafunc is not None, f'unknown data option {FLAGS.data_option}'
     replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config)
+
+    
     print(f'new replay buffer size: {replay_buffer.size}')
 
     ##=========== FURTHER TRAINING ===========##
@@ -218,14 +222,14 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = to_jnp(replay_buffer.sample(config['batch_size']))
+        batch = replay_buffer.sample(config['batch_size'])
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            val_batch = val_dataset.sample(config['batch_size'])
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 

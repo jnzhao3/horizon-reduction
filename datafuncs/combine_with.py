@@ -96,7 +96,8 @@ class CombineWith:
                     new_data,
                 )
 
-        original_dataset = Dataset.create(**original_dataset_dict)
+        original_dataset_dict = jax.tree_util.tree_map(lambda x: jnp.array(x), original_dataset_dict)
+        original_dataset = Dataset.create(**original_dataset_dict, freeze=False)
         dataset_class_dict = {
             'GCDataset': GCDataset,
             'HGCDataset': HGCDataset,

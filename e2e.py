@@ -68,6 +68,9 @@ def print_info(exp_name, info):
     print("\n\npython", " ".join(sys.argv), "\n", file=sys.stderr)
     return animal
 
+def to_jnp(batch):
+    return jax.tree_util.tree_map(lambda x: jnp.array(x), batch)
+
 ##=========== MAIN SCRIPT ===========##
 def main(_):
     ##=========== ASSERTIONS ===========##
@@ -116,7 +119,6 @@ def main(_):
 
     # Set up logger.
     exp_name, info = get_exp_name(FLAGS.seed, config=FLAGS)
-    # setup_wandb(project='horizon-reduction', group=FLAGS.run_group, name=exp_name)
     setup_wandb(project='aorl', group=FLAGS.run_group, name=exp_name)
 
     ##=========== LOG MESSAGES TO ERR AND SLACK ===========##
@@ -134,8 +136,6 @@ def main(_):
     # Set up environment and datasets.
     config = FLAGS.agent
     datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
-    # if FLAGS.num_datasets is not None:
-    #     datasets = datasets[: FLAGS.num_datasets]
     dataset_idx = 0
     env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx], use_oracle_reps=True)
 
@@ -174,14 +174,14 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = train_dataset.sample(config['batch_size'])
+        batch = to_jnp(train_dataset.sample(config['batch_size']))
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = val_dataset.sample(config['batch_size'])
+            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -218,16 +218,14 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = replay_buffer.sample(config['batch_size'])
-        # batch = jax.tree_map(lambda x: np.array(x), batch)  # ensure numpy arrays
-        batch = jax.tree_util.tree_map(lambda x: jnp.array(x), batch)  # ensure numpy arrays
+        batch = to_jnp(replay_buffer.sample(config['batch_size']))
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = val_dataset.sample(config['batch_size'])
+            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 

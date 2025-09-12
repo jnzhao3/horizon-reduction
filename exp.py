@@ -1257,3 +1257,36 @@ e2e_maze_1_4 = {
         "data_option.train_data_sizes" : ("100000,100000,100000,100000,100000,100000,100000,100000,100000,100000","10000,10000,10000,10000,10000,10000,10000,10000,10000,10000"),
     }
 }
+
+e2e_maze_1_5 = {
+    "script": "e2e.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "16:00:00",
+    "config": {
+        "run_group": "e2e_maze_1_5",
+        "seed": (0),
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": 100000,
+        "save_dir": "../../scratch",
+        "offline_steps": 2000000,
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=False",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        # "agent.subgoal_steps" : (50,100),
+        # "json_path": "../jsons/data.json",
+        "agent.discount" : 0.995,
+        # "agent.goal_proposer_type" : ("default","actor-gc"),
+        "data_option" : "datafuncs/combine_with.py",
+        "data_option.train_data_paths" : "gcfql_main_maze3_5",
+        "data_option.train_data_sizes" : ("100000,100000,100000,100000,100000,100000,100000,100000,100000,100000"),
+    }
+}

@@ -201,42 +201,42 @@ def main(_):
     print(f"Evaluating on {len(task_info)} tasks with start_ij {start_ij}")
 
     # Train agent.
-    # train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
-    # eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
-    # first_time = time.time()
-    # last_time = time.time()
+    train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
+    eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
+    first_time = time.time()
+    last_time = time.time()
 
-    # for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-    #     batch = to_jnp(train_dataset.sample(config['batch_size']))
-    #     agent, update_info = agent.update(batch)
+    for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+        batch = to_jnp(train_dataset.sample(config['batch_size']))
+        agent, update_info = agent.update(batch)
 
-    #     # Log metrics.
-    #     if i % FLAGS.log_interval == 0:
-    #         train_metrics = {f'training/{k}': v for k, v in update_info.items()}
+        # Log metrics.
+        if i % FLAGS.log_interval == 0:
+            train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-    #         val_batch = to_jnp(val_dataset.sample(config['batch_size']))
-    #         _, val_info = agent.total_loss(val_batch, grad_params=None)
-    #         train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
+            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            _, val_info = agent.total_loss(val_batch, grad_params=None)
+            train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
-    #         train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
-    #         train_metrics['time/total_time'] = time.time() - first_time
-    #         last_time = time.time()
-    #         wandb.log(train_metrics, step=i)
-    #         train_logger.log(train_metrics, step=i)
+            train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
+            train_metrics['time/total_time'] = time.time() - first_time
+            last_time = time.time()
+            wandb.log(train_metrics, step=i)
+            train_logger.log(train_metrics, step=i)
 
-    #     # Evaluate agent.
-    #     if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
-    #         eval_metrics = evaluate_step(agent, env, config, task_info=task_info)
+        # Evaluate agent.
+        if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
+            eval_metrics = evaluate_step(agent, env, config, task_info=task_info)
 
-    #         wandb.log(eval_metrics, step=i)
-    #         eval_logger.log(eval_metrics, step=i)
+            wandb.log(eval_metrics, step=i)
+            eval_logger.log(eval_metrics, step=i)
 
-    #     # Save agent.
-    #     if i % FLAGS.save_interval == 0:
-    #         save_agent(agent, FLAGS.save_dir, i)
+        # Save agent.
+        if i % FLAGS.save_interval == 0:
+            save_agent(agent, FLAGS.save_dir, i)
 
-    # train_logger.close()
-    # eval_logger.close()
+    train_logger.close()
+    eval_logger.close()
 
     ##=========== ADD NEW DATA ===========##
     datafunc = datafuncs.get(FLAGS.data_option['method_name'], None)

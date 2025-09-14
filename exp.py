@@ -1365,7 +1365,7 @@ e2e_maze_1_7 = {
 e2e_maze_1_8 = {
     "script": "e2e.py",
     "priority": "high", # high, normal, low, lowest
-    "time": "16:00:00",
+    "time": "1:00:00",
     "config": {
         "run_group": "e2e_maze_1_8",
         "seed": (0),

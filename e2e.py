@@ -16,7 +16,7 @@ from ml_collections import config_flags
 
 from agents import agents
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
-from utils.evaluation import evaluate_gcfql
+from utils.evaluation import evaluate_gcfql, evaluate_custom_gcfql
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_video, setup_wandb, get_animal
 from datafuncs import datafuncs
@@ -46,8 +46,8 @@ flags.DEFINE_string('restore_path', None, 'Restore path.')
 flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
-flags.DEFINE_integer('offline_steps', 5000000, 'Number of offline steps.')
-flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
+flags.DEFINE_integer('offline_steps', 2000000, 'Number of offline steps.')
+flags.DEFINE_integer('log_interval', 10000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
 
@@ -71,6 +71,28 @@ def print_info(exp_name, info):
 def to_jnp(batch):
     return jax.tree_util.tree_map(lambda x: jnp.array(x), batch)
 
+def choose_start_ij(env):
+    maze_map = env.unwrapped.maze_map
+    idxs = np.argwhere(maze_map == 1)
+    i, j = idxs[np.random.choice(len(idxs))]
+    return {'init_ij': (i, j), 'init_xy': env.unwrapped.ij_to_xy((i, j))}
+
+def create_task_infos(env, start_ij):
+    NUM_TASKS = 5
+    maze_map = env.unwrapped.maze_map
+    idxs = np.argwhere(maze_map == 1)
+    task_info = []
+    for task_i in range(1, NUM_TASKS + 1):
+        i, j = idxs[np.random.choice(len(idxs))]
+        task_info.append({
+            'task_name': f'custom_task{task_i}',
+            'init_ij': start_ij,
+            'goal_ij': (i, j),
+            'goal_xy': env.unwrapped.ij_to_xy((i, j)),
+        })
+
+    return task_info
+
 ##=========== MAIN SCRIPT ===========##
 def main(_):
     ##=========== ASSERTIONS ===========##
@@ -78,20 +100,25 @@ def main(_):
             assert FLAGS.agent['discount'] == 0.995, "Humanoid maze tasks require discount factor of 0.995."
     assert FLAGS.dataset_dir is not None, 'must provide dataset directory'
 
-    def evaluate_step(agent, env, config):
+    def evaluate_step(agent, env, config, task_info=None):
         renders = []
         eval_metrics = {}
         overall_metrics = defaultdict(list)
-        task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
+        if task_info is not None:
+            task_infos = task_info
+        else:
+            task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
         num_tasks = len(task_infos)
         for task_id in tqdm.trange(1, num_tasks + 1):
             task_name = task_infos[task_id - 1]['task_name']
-            eval_info, trajs, cur_renders = evaluate_gcfql(
+            eval_info, trajs, cur_renders = evaluate_custom_gcfql(
                 agent=agent,
                 env=env,
                 env_name=FLAGS.env_name,
                 goal_conditioned=True,
-                task_id=task_id,
+                # task_id=task_id,
+                init_ij=task_infos[task_id - 1]['init_ij'],
+                goal_ij=task_infos[task_id - 1]['goal_ij'],
                 config=config,
                 num_eval_episodes=FLAGS.eval_episodes,
                 num_video_episodes=FLAGS.video_episodes,
@@ -142,8 +169,6 @@ def main(_):
     N = int(FLAGS.train_data_size)
     train_dataset = clip_dataset(train_dataset, N)
 
-    train_dataset = to_jnp(train_dataset)
-
     # Initialize agent.
     random.seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
@@ -169,50 +194,58 @@ def main(_):
     if FLAGS.restore_path is not None:
         agent = restore_agent(agent, FLAGS.restore_path, FLAGS.restore_epoch)
 
+    assert agent.config['actor_type'] == 'best-of-n', "evaluation only implemented for best-of-n actors"
+    ##=========== SET EVALUATION INFO ===========##
+    start_ij = choose_start_ij(env)['init_ij']
+    task_info = create_task_infos(env, start_ij=start_ij)
+    print(f"Evaluating on {len(task_info)} tasks with start_ij {start_ij}")
+
     # Train agent.
-    train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
-    eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
-    first_time = time.time()
-    last_time = time.time()
+    # train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
+    # eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
+    # first_time = time.time()
+    # last_time = time.time()
 
-    for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = train_dataset.sample(config['batch_size'])
-        agent, update_info = agent.update(batch)
+    # for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+    #     batch = to_jnp(train_dataset.sample(config['batch_size']))
+    #     agent, update_info = agent.update(batch)
 
-        # Log metrics.
-        if i % FLAGS.log_interval == 0:
-            train_metrics = {f'training/{k}': v for k, v in update_info.items()}
+    #     # Log metrics.
+    #     if i % FLAGS.log_interval == 0:
+    #         train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = val_dataset.sample(config['batch_size'])
-            _, val_info = agent.total_loss(val_batch, grad_params=None)
-            train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
+    #         val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+    #         _, val_info = agent.total_loss(val_batch, grad_params=None)
+    #         train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
-            train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
-            train_metrics['time/total_time'] = time.time() - first_time
-            last_time = time.time()
-            wandb.log(train_metrics, step=i)
-            train_logger.log(train_metrics, step=i)
+    #         train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
+    #         train_metrics['time/total_time'] = time.time() - first_time
+    #         last_time = time.time()
+    #         wandb.log(train_metrics, step=i)
+    #         train_logger.log(train_metrics, step=i)
 
-        # Evaluate agent.
-        if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
-            eval_metrics = evaluate_step(agent, env, config)
+    #     # Evaluate agent.
+    #     if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
+    #         eval_metrics = evaluate_step(agent, env, config, task_info=task_info)
 
-            wandb.log(eval_metrics, step=i)
-            eval_logger.log(eval_metrics, step=i)
+    #         wandb.log(eval_metrics, step=i)
+    #         eval_logger.log(eval_metrics, step=i)
 
-        # Save agent.
-        if i % FLAGS.save_interval == 0:
-            save_agent(agent, FLAGS.save_dir, i)
+    #     # Save agent.
+    #     if i % FLAGS.save_interval == 0:
+    #         save_agent(agent, FLAGS.save_dir, i)
 
-    train_logger.close()
-    eval_logger.close()
+    # train_logger.close()
+    # eval_logger.close()
 
     ##=========== ADD NEW DATA ===========##
     datafunc = datafuncs.get(FLAGS.data_option['method_name'], None)
     assert datafunc is not None, f'unknown data option {FLAGS.data_option}'
-    replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config)
+    replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config, seed=FLAGS.seed, save_dir=FLAGS.save_dir, start_ij=start_ij, wandb=wandb, agent=agent)
 
-    
+    replay_buffer = dataset_class(Dataset.create(**replay_buffer), config)
+    # val_dataset = dataset_class(Dataset.create(**replay_buffer, freeze=False), config)
+    # original_dataset, config, agent_config, env, seed, save_dir
     print(f'new replay buffer size: {replay_buffer.size}')
 
     ##=========== FURTHER TRAINING ===========##
@@ -222,14 +255,14 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = replay_buffer.sample(config['batch_size'])
+        batch = to_jnp(replay_buffer.sample(config['batch_size']))
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = val_dataset.sample(config['batch_size'])
+            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -241,7 +274,7 @@ def main(_):
 
         # Evaluate agent.
         if FLAGS.eval_interval != 0 and (i == 1 or i % FLAGS.eval_interval == 0):
-            eval_metrics = evaluate_step(agent, env, config)
+            eval_metrics = evaluate_step(agent, env, config, task_info=task_info)
 
             wandb.log(eval_metrics, step=i)
             eval_logger.log(eval_metrics, step=i)

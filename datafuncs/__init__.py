@@ -9,7 +9,11 @@
 # )
 
 from .combine_with import CombineWith
+from .randomsteps import RandomSteps
+from .ogbench import OGBench
 
 datafuncs = dict(
     combine_with=CombineWith,
+    randomsteps=RandomSteps,
+    ogbench=OGBench,
 )

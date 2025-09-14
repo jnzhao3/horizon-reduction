@@ -13,30 +13,24 @@ import gymnasium
 from utils.plot_utils import plot_data, calculate_all_cells, bfs
 
 @struct.dataclass
-class OGBench:
+class WithSubgoal:
     '''
-    Given an original dataset, and specifications for new datasets to combine with,
-    create a new dataset that combines them.
+    Sample subgoals to navigate to.
     '''
     
     def create(original_dataset, config, agent_config, env, seed, save_dir, start_ij, wandb, agent, **kwargs):
         '''
         Should return an expanded dataset that combines the original dataset with new datasets.
         '''
-
-        # original_dataset_dict = original_dataset.dataset.unfreeze()
-        # rbsize = original_dataset_dict['observations'].shape[0] + sum(config['train_data_sizes'])
         rbsize = original_dataset.size + config['collection_steps']
         replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
         rng = jax.random.PRNGKey(seed)
         env_name = env.spec.id
 
-        # canonical_env_name = '-'.join(env.spec.id.split('-')[:-1]) + '-v0'
         canonical_env_name = env_name
         stats = statistics[canonical_env_name](env=env)
 
         env = gymnasium.make(
-            # FLAGS.env_name,
             env.spec.id,
             terminate_at_goal=False,
             use_oracle_rep=True,
@@ -75,45 +69,49 @@ class OGBench:
             'cmap': 'plasma',
         }
 
-        all_cells = []
-        vertex_cells = []
-        maze_map = env.unwrapped.maze_map
-        for i in range(maze_map.shape[0]):
-            for j in range(maze_map.shape[1]):
-                if maze_map[i, j] == 0:
-                    all_cells.append((i, j))
+        # all_cells = []
+        # vertex_cells = []
+        # maze_map = env.unwrapped.maze_map
+        # for i in range(maze_map.shape[0]):
+        #     for j in range(maze_map.shape[1]):
+        #         if maze_map[i, j] == 0:
+        #             all_cells.append((i, j))
 
-                    # Exclude hallway cells.
-                    if (
-                        maze_map[i - 1, j] == 0
-                        and maze_map[i + 1, j] == 0
-                        and maze_map[i, j - 1] == 1
-                        and maze_map[i, j + 1] == 1
-                    ):
-                        continue
-                    if (
-                        maze_map[i, j - 1] == 0
-                        and maze_map[i, j + 1] == 0
-                        and maze_map[i - 1, j] == 1
-                        and maze_map[i + 1, j] == 1
-                    ):
-                        continue
+        #             # Exclude hallway cells.
+        #             if (
+        #                 maze_map[i - 1, j] == 0
+        #                 and maze_map[i + 1, j] == 0
+        #                 and maze_map[i, j - 1] == 1
+        #                 and maze_map[i, j + 1] == 1
+        #             ):
+        #                 continue
+        #             if (
+        #                 maze_map[i, j - 1] == 0
+        #                 and maze_map[i, j + 1] == 0
+        #                 and maze_map[i - 1, j] == 1
+        #                 and maze_map[i + 1, j] == 1
+        #             ):
+        #                 continue
 
-                    vertex_cells.append((i, j))
+        #             vertex_cells.append((i, j))
 
-        goal_ij = vertex_cells[np.random.randint(len(vertex_cells))]
+        # goal_ij = vertex_cells[np.random.randint(len(vertex_cells))]
+        # env.unwrapped.set_goal(goal_ij)
+
+        ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=(0,0)) )) # TODO: use goal_ij placeholder
+        goal = agent.propose_goals(observations=ob[None], goals=np.array([20,20]), rng=rng)
+
+        goal_ij = env.unwrapped.xy_to_ij(goal[0])
         env.unwrapped.set_goal(goal_ij)
-        data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], env.unwrapped.ij_to_xy(goal_ij)[0])
-        data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], env.unwrapped.ij_to_xy(goal_ij)[1])
+
+        data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], goal[0][0])
+        data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], goal[0][1])
         data_to_plot['goals']['c'] = np.append(data_to_plot['goals']['c'], 0)
-        # ob, info = env.reset()
-        ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=goal_ij))) # TODO: use goal_ij placeholder
 
         collection_info = {
             'num_successes': 0,
             'num_goals': 1,
         }
-
         for i in tqdm.tqdm(range(1, config['collection_steps'] + 1)):
 
             curr_rng, rng = jax.random.split(rng)
@@ -132,10 +130,11 @@ class OGBench:
 
             if success: # TODO: update if not navigate
                 # assert 'navigate' in env_name, "success should only be true for navigate tasks"
-                goal_ij = vertex_cells[np.random.randint(len(vertex_cells))]
+                goal = agent.propose_goals(observations=ob[None], goals=np.array([20,20]), rng=rng)
+                goal_ij = env.unwrapped.xy_to_ij(goal[0])
                 env.unwrapped.set_goal(goal_ij)
-                data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], env.unwrapped.ij_to_xy(goal_ij)[0])
-                data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], env.unwrapped.ij_to_xy(goal_ij)[1])
+                data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], goal[0][0])
+                data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], goal[0][1])
                 collection_info['num_goals'] += 1
                 data_to_plot['goals']['c'] = np.append(data_to_plot['goals']['c'], collection_info['num_goals'])
 
@@ -168,10 +167,11 @@ class OGBench:
 
             if done:
                 done = False
-                goal_ij = vertex_cells[np.random.randint(len(vertex_cells))]
+                goal = agent.propose_goals(observations=ob[None], goals=np.array([20,20]), rng=rng)
+                goal_ij = env.unwrapped.xy_to_ij(goal[0])
                 env.unwrapped.set_goal(goal_ij)
-                data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], env.unwrapped.ij_to_xy(goal_ij)[0])
-                data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], env.unwrapped.ij_to_xy(goal_ij)[1])
+                data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], goal[0][0])
+                data_to_plot['goals']['y'] = np.append(data_to_plot['goals']['y'], goal[0][1])
                 collection_info['num_goals'] += 1
                 data_to_plot['goals']['c'] = np.append(data_to_plot['goals']['c'], collection_info['num_goals'])
                 ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=goal_ij))) # TODO: use goal_ij placeholder
@@ -204,7 +204,7 @@ class OGBench:
 def get_config():
     config = ml_collections.ConfigDict(
         dict(
-            method_name='ogbench',
+            method_name='withsubgoal',
             collection_steps=1000000,
             save_data_interval=100000,
             plot_interval=100000,

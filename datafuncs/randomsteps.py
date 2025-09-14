@@ -7,7 +7,6 @@ import ml_collections
 from typing import Any
 from ogbench.relabel_utils import add_oracle_reps
 import wandb
-from horizon_reduction.datafuncs import data
 from utils.datasets import Dataset, ReplayBuffer
 from datafuncs.datafuncs_utils import clip_dataset
 from ogbench.relabel_utils import add_oracle_reps

@@ -2,6 +2,8 @@ import numpy as np
 from utils.datasets import Dataset
 import ogbench
 from ogbench.relabel_utils import add_oracle_reps
+import jax
+import jax.numpy as jnp
 
 def clip_dataset(train_dataset, N):
     if N > 0:

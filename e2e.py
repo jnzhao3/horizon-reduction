@@ -47,7 +47,7 @@ flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 2000000, 'Number of offline steps.')
-flags.DEFINE_integer('log_interval', 10000, 'Logging interval.')
+flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
 
@@ -70,6 +70,7 @@ def print_info(exp_name, info):
 
 def to_jnp(batch):
     return jax.tree_util.tree_map(lambda x: jnp.array(x), batch)
+    # return batch
 
 def choose_start_ij(env):
     maze_map = env.unwrapped.maze_map
@@ -177,6 +178,7 @@ def main(_):
         'GCDataset': GCDataset,
         'HGCDataset': HGCDataset,
     }
+
     dataset_class = dataset_class_dict[config['dataset_class']]
     train_dataset = dataset_class(Dataset.create(**train_dataset, freeze=False), config)
     val_dataset = dataset_class(Dataset.create(**val_dataset, freeze=False), config)
@@ -207,14 +209,16 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = to_jnp(train_dataset.sample(config['batch_size']))
+        # batch = to_jnp(train_dataset.sample(config['batch_size']))
+        batch = train_dataset.sample(config['batch_size'])
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            # val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            val_batch = val_dataset.sample(config['batch_size'])
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -255,14 +259,16 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        batch = to_jnp(replay_buffer.sample(config['batch_size']))
+        # batch = to_jnp(replay_buffer.sample(config['batch_size']))
+        batch = replay_buffer.sample(config['batch_size'])
         agent, update_info = agent.update(batch)
 
         # Log metrics.
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            # val_batch = to_jnp(val_dataset.sample(config['batch_size']))
+            val_batch = val_dataset.sample(config['batch_size'])
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 

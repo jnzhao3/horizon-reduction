@@ -1408,7 +1408,7 @@ e2e_maze_1_9 = {
     "time": "16:00:00",
     "config": {
         "run_group": "e2e_maze_1_9",
-        "seed": (0),
+        "seed": (0,1,2,3),
         "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
         "agent": "../agents/gcfql.py",
         "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",

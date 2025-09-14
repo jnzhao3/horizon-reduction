@@ -1429,3 +1429,30 @@ e2e_maze_1_9 = {
         "data_option.noise": 0.0 # TODO: reference what the actual values are
     }
 }
+
+e2e_maze_1_10 = {
+    "script": "e2e.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "24:00:00",
+    "config": {
+        "run_group": "e2e_maze_1_10",
+        "seed": (0,1,2,3),
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": (100000, 1000000),
+        "save_dir": "../../scratch",
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=False",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.discount" : 0.995,
+        "data_option" : "datafuncs/ogbench.py",
+    }
+}

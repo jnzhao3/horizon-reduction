@@ -211,6 +211,7 @@ def main(_):
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         # batch = to_jnp(train_dataset.sample(config['batch_size']))
         batch = train_dataset.sample(config['batch_size'])
+        batch = to_jnp(batch)
         agent, update_info = agent.update(batch)
 
         # Log metrics.
@@ -219,6 +220,7 @@ def main(_):
 
             # val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             val_batch = val_dataset.sample(config['batch_size'])
+            val_batch = to_jnp(val_batch)
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -261,6 +263,7 @@ def main(_):
     for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         # batch = to_jnp(replay_buffer.sample(config['batch_size']))
         batch = replay_buffer.sample(config['batch_size'])
+        batch = to_jnp(batch)
         agent, update_info = agent.update(batch)
 
         # Log metrics.
@@ -269,6 +272,7 @@ def main(_):
 
             # val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             val_batch = val_dataset.sample(config['batch_size'])
+            val_batch = to_jnp(val_batch)
             _, val_info = agent.total_loss(val_batch, grad_params=None)
             train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 

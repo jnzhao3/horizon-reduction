@@ -26,6 +26,7 @@ import ogbench
 
 from utils.datasets import Dataset
 from datafuncs.datafuncs_utils import clip_dataset, make_env_and_datasets
+from utils.plot_utils import plot_data
 
 FLAGS = flags.FLAGS
 
@@ -60,6 +61,7 @@ flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
 
 ##=========== DATA COLLECTION FLAGS ===========##
 config_flags.DEFINE_config_file('data_option', None, 'Data function option (e.g., new_buffer, combine_with).')
+flags.DEFINE_bool('debug', False, 'Debug mode.')
 
 def print_info(exp_name, info):
     animal = get_animal()
@@ -73,18 +75,70 @@ def to_jnp(batch):
     # return batch
 
 def choose_start_ij(env):
+    all_cells = []
+    vertex_cells = []
     maze_map = env.unwrapped.maze_map
-    idxs = np.argwhere(maze_map == 1)
-    i, j = idxs[np.random.choice(len(idxs))]
-    return {'init_ij': (i, j), 'init_xy': env.unwrapped.ij_to_xy((i, j))}
+    for i in range(maze_map.shape[0]):
+        for j in range(maze_map.shape[1]):
+            if maze_map[i, j] == 0:
+                all_cells.append((i, j))
+
+                # Exclude hallway cells.
+                if (
+                    maze_map[i - 1, j] == 0
+                    and maze_map[i + 1, j] == 0
+                    and maze_map[i, j - 1] == 1
+                    and maze_map[i, j + 1] == 1
+                ):
+                    continue
+                if (
+                    maze_map[i, j - 1] == 0
+                    and maze_map[i, j + 1] == 0
+                    and maze_map[i - 1, j] == 1
+                    and maze_map[i + 1, j] == 1
+                ):
+                    continue
+
+                vertex_cells.append((i, j))
+                
+    # maze_map = env.unwrapped.maze_map
+    # idxs = np.argwhere(maze_map == 1)
+    # i, j = idxs[np.random.choice(len(idxs))]
+    init_ij = vertex_cells[np.random.randint(len(vertex_cells))]
+    init_xy = env.unwrapped.ij_to_xy(init_ij)
+    return {'init_ij': init_ij, 'init_xy': init_xy}
 
 def create_task_infos(env, start_ij):
     NUM_TASKS = 5
+    all_cells = []
+    vertex_cells = []
     maze_map = env.unwrapped.maze_map
+    for i in range(maze_map.shape[0]):
+        for j in range(maze_map.shape[1]):
+            if maze_map[i, j] == 0:
+                all_cells.append((i, j))
+
+                # Exclude hallway cells.
+                if (
+                    maze_map[i - 1, j] == 0
+                    and maze_map[i + 1, j] == 0
+                    and maze_map[i, j - 1] == 1
+                    and maze_map[i, j + 1] == 1
+                ):
+                    continue
+                if (
+                    maze_map[i, j - 1] == 0
+                    and maze_map[i, j + 1] == 0
+                    and maze_map[i - 1, j] == 1
+                    and maze_map[i + 1, j] == 1
+                ):
+                    continue
+
+                vertex_cells.append((i, j))
     idxs = np.argwhere(maze_map == 1)
     task_info = []
     for task_i in range(1, NUM_TASKS + 1):
-        i, j = idxs[np.random.choice(len(idxs))]
+        i, j = vertex_cells[np.random.randint(len(vertex_cells))]
         task_info.append({
             'task_name': f'custom_task{task_i}',
             'init_ij': start_ij,
@@ -200,7 +254,31 @@ def main(_):
     ##=========== SET EVALUATION INFO ===========##
     start_ij = choose_start_ij(env)['init_ij']
     task_info = create_task_infos(env, start_ij=start_ij)
+    # env.task_infos = task_info
     print(f"Evaluating on {len(task_info)} tasks with start_ij {start_ij}")
+
+    ##=========== PLOT THE TASK INFOS ===========##
+    task_info_to_plot = {'start_xy' : {
+        'x': [env.unwrapped.ij_to_xy(start_ij)[0]],
+        'y': [env.unwrapped.ij_to_xy(start_ij)[1]],
+        's': 50,'c': 'red',
+    }}
+    for t in task_info:
+        task_info_to_plot[t['task_name']] = {
+            'x': t['goal_xy'][0],
+            'y': t['goal_xy'][1],
+            's': 50,
+            'c': random.choice(['blue', 'green', 'orange', 'purple', 'brown']),
+            'marker': random.choice(['*', 'X', 'P', 'D', 'v']),
+        }
+    fig_name = plot_data(
+        task_info_to_plot,
+        save_dir=FLAGS.save_dir,
+    )
+    wandb.log({"data_collection/task_info_viz": wandb.Image(fig_name)})
+    print(f"Plotted task info to {fig_name}")
+    os.remove(fig_name)
+
 
     # Train agent.
     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
@@ -209,6 +287,8 @@ def main(_):
     last_time = time.time()
 
     for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+        if FLAGS.debug:
+            break
         # batch = to_jnp(train_dataset.sample(config['batch_size']))
         batch = train_dataset.sample(config['batch_size'])
         batch = to_jnp(batch)

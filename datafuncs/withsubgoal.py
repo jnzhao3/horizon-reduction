@@ -26,6 +26,7 @@ class WithSubgoal:
         replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
         rng = jax.random.PRNGKey(seed)
         env_name = env.spec.id
+        # infos = env.task_infos
 
         canonical_env_name = env_name
         stats = statistics[canonical_env_name](env=env)
@@ -69,39 +70,16 @@ class WithSubgoal:
             'cmap': 'plasma',
         }
 
-        # all_cells = []
-        # vertex_cells = []
-        # maze_map = env.unwrapped.maze_map
-        # for i in range(maze_map.shape[0]):
-        #     for j in range(maze_map.shape[1]):
-        #         if maze_map[i, j] == 0:
-        #             all_cells.append((i, j))
-
-        #             # Exclude hallway cells.
-        #             if (
-        #                 maze_map[i - 1, j] == 0
-        #                 and maze_map[i + 1, j] == 0
-        #                 and maze_map[i, j - 1] == 1
-        #                 and maze_map[i, j + 1] == 1
-        #             ):
-        #                 continue
-        #             if (
-        #                 maze_map[i, j - 1] == 0
-        #                 and maze_map[i, j + 1] == 0
-        #                 and maze_map[i - 1, j] == 1
-        #                 and maze_map[i + 1, j] == 1
-        #             ):
-        #                 continue
-
-        #             vertex_cells.append((i, j))
-
-        # goal_ij = vertex_cells[np.random.randint(len(vertex_cells))]
-        # env.unwrapped.set_goal(goal_ij)
-
-        ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=(0,0)) )) # TODO: use goal_ij placeholder
+        ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=(0,0)))) # TODO: use goal_ij placeholder
+        # ob, _ = env.reset()
+        # num_random_actions = 40 # if loco_env_type == 'humanoid' else 5
+        # for _ in range(num_random_actions):
+        #     env.step(env.action_space.sample())
+            
         goal = agent.propose_goals(observations=ob[None], goals=np.array([20,20]), rng=rng)
 
         goal_ij = env.unwrapped.xy_to_ij(goal[0])
+        ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=goal_ij)))
         env.unwrapped.set_goal(goal_ij)
 
         data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], goal[0][0])
@@ -117,7 +95,7 @@ class WithSubgoal:
             curr_rng, rng = jax.random.split(rng)
             action = agent.sample_actions(
                 observations=ob,
-                goals=np.array(env.unwrapped.ij_to_xy(goal_ij)),
+                goals=goal[0],
                 seed=curr_rng,
             )
 
@@ -175,6 +153,7 @@ class WithSubgoal:
                 collection_info['num_goals'] += 1
                 data_to_plot['goals']['c'] = np.append(data_to_plot['goals']['c'], collection_info['num_goals'])
                 ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=goal_ij))) # TODO: use goal_ij placeholder
+                # ob, _ = env.reset()
             else:
                 ob = next_ob
 

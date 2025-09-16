@@ -1815,7 +1815,7 @@ e2e_maze_4_4 = {
 e2e_maze_4_5 = {
     "script": "e2e.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "1:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "e2e_maze_4_5",
         "seed": (0,1,2,3),
@@ -1844,7 +1844,7 @@ e2e_maze_4_5 = {
 e2e_maze_4_6 = {
     "script": "e2e.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "1:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "e2e_maze_4_6",
         "seed": (0,1,2,3),
@@ -1873,7 +1873,7 @@ e2e_maze_4_6 = {
 e2e_maze_4_7 = {
     "script": "e2e.py",
     "priority": "normal", # high, normal, low, lowest
-    "time": "1:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "e2e_maze_4_7",
         "seed": (0,1,2,3),

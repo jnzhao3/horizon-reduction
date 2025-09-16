@@ -11,7 +11,8 @@ from utils.samplers import to_oracle_rep
 from utils.statistics import statistics
 import gymnasium
 from utils.plot_utils import plot_data, calculate_all_cells, bfs
-from utils.restore import restore_rb
+# from utils.restore import restore_rb
+from utils.flax_utils import restore_rb
 
 @struct.dataclass
 class WithSubgoal:
@@ -105,7 +106,7 @@ class WithSubgoal:
             start_i = int(wandb.run.summary['_datacollection_checkpoint']) + 1
         else:
             start_i = 1
-            
+
         for i in tqdm.tqdm(range(1, config['collection_steps'] + 1)):
 
             curr_rng, rng = jax.random.split(rng)

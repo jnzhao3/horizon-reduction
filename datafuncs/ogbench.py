@@ -11,7 +11,8 @@ from utils.samplers import to_oracle_rep
 from utils.statistics import statistics
 import gymnasium
 from utils.plot_utils import plot_data, calculate_all_cells, bfs
-from utils.restore import restore_rb
+# from utils.restore import restore_rb
+from utils.flax_utils import restore_rb
 
 @struct.dataclass
 class OGBench:

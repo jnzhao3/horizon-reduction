@@ -49,11 +49,11 @@ flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 ##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 2000000, 'Number of offline steps.')
 flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
-flags.DEFINE_integer('eval_interval', 500000, 'Evaluation interval.')
-flags.DEFINE_integer('save_interval', 1000000, 'Saving interval.')
+flags.DEFINE_integer('eval_interval', 100000, 'Evaluation interval.')
+flags.DEFINE_integer('save_interval', 100000, 'Saving interval.')
 
 ##=========== EVALUATION HYPERPARAMETERS ===========##
-flags.DEFINE_integer('eval_episodes', 15, 'Number of episodes for each task.')
+flags.DEFINE_integer('eval_episodes', 10, 'Number of episodes for each task.')
 flags.DEFINE_float('eval_temperature', 0, 'Actor temperature for evaluation.')
 flags.DEFINE_float('eval_gaussian', None, 'Action Gaussian noise for evaluation.')
 flags.DEFINE_integer('video_episodes', 1, 'Number of video episodes for each task.')
@@ -62,6 +62,7 @@ flags.DEFINE_integer('video_frame_skip', 3, 'Frame skip for videos.')
 ##=========== DATA COLLECTION FLAGS ===========##
 config_flags.DEFINE_config_file('data_option', None, 'Data function option (e.g., new_buffer, combine_with).')
 flags.DEFINE_bool('debug', False, 'Debug mode.')
+flags.DEFINE_string('wbid', None, 'Weights & Biases ID (for resuming runs).')
 
 def print_info(exp_name, info):
     animal = get_animal()
@@ -201,13 +202,51 @@ def main(_):
 
     # Set up logger.
     exp_name, info = get_exp_name(FLAGS.seed, config=FLAGS)
-    setup_wandb(project='aorl', group=FLAGS.run_group, name=exp_name)
+
+    if FLAGS.wbid is not None:
+        api = wandb.Api()
+
+        # try:
+        #     run = api.run(f"aorl/jnzhao3/{FLAGS.wbid}")
+        #     print(f"Resuming run {run.name} with ID {run.id}")
+
+        #     import ipdb; ipdb.set_trace()
+        #     wandb.init(
+        #         id=FLAGS.wbid,
+        #         project='aorl',
+        #         group=FLAGS.run_group,
+        #         name=exp_name,
+        #         resume="must",
+        #     )
+        #     print(f"Resumed run {wandb.run.name} with ID {wandb.run.id}")
+        #     PREEMPTED = True
+        # except Exception as e:
+        #     import ipdb; ipdb.set_trace()
+
+        try:
+            run = api.run(f"jnzhao3/aorl/{FLAGS.wbid}")
+            exp_name = run.name
+            print(f"Resuming run {run.name} with ID {run.id}")
+        except Exception as e:
+            print(f"Failed to find run with ID {FLAGS.wbid}, starting new run")
+            run = None
+        
+
+        setup_wandb(project='aorl', group=FLAGS.run_group, name=exp_name, id=FLAGS.wbid)
+        FLAGS.wbid = wandb.run.id
+        wandb.run.config.update({'info': info}, allow_val_change=True)
+        print(f"Created new run {wandb.run.name} with ID {wandb.run.id}")
+    else:
+        setup_wandb(project='aorl', group=FLAGS.run_group, name=exp_name)
+        FLAGS.wbid = wandb.run.id
+        wandb.run.config.update({'info': info}, allow_val_change=True)
+        # PREEMPTED = False
 
     ##=========== LOG MESSAGES TO ERR AND SLACK ===========##
     animal = print_info(exp_name, info)
     
     if FLAGS.wandb_alerts:
-        wandb.run.alert(title=f"{animal} train_fql run started!", text=f"{exp_name}\n\n{'python ' + ' '.join(sys.argv)}\n\n{info}")
+        wandb.run.alert(title=f"{animal} e2e run started!", text=f"{exp_name}\n\n{'python ' + ' '.join(sys.argv)}\n\n{info}")
 
     FLAGS.save_dir = os.path.join(FLAGS.save_dir, wandb.run.project, FLAGS.run_group, exp_name)
     os.makedirs(FLAGS.save_dir, exist_ok=True)
@@ -249,6 +288,10 @@ def main(_):
     # Restore agent.
     if FLAGS.restore_path is not None:
         agent = restore_agent(agent, FLAGS.restore_path, FLAGS.restore_epoch)
+    elif '_checkpoint_epoch' in dict(wandb.run.summary):
+        restore_epoch = int(wandb.run.summary['_checkpoint_epoch'])
+        print(f"Restoring from epoch {restore_epoch}")
+        agent = restore_agent(agent, FLAGS.save_dir, restore_epoch)
 
     assert agent.config['actor_type'] == 'best-of-n', "evaluation only implemented for best-of-n actors"
     ##=========== SET EVALUATION INFO ===========##
@@ -286,7 +329,18 @@ def main(_):
     first_time = time.time()
     last_time = time.time()
 
-    for i in tqdm.tqdm(range(1, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+    # if PREEMPTED and int(wandb.run.summary['_checkpoint_epoch']) + 1 <= FLAGS.offline_steps:
+    #     start_i = int(wandb.run.summary['_checkpoint_epoch']) + 1
+    # elif PREEMPTED and int(wandb.run.summary['_checkpoint_epoch']) + 1 > FLAGS.offline_steps:
+    #     FLAGS.debug = True
+    # else:
+    #     start_i = 1
+    # start_i = 1 if not PREEMPTED else int(wandb.run.summary['_checkpoint_epoch']) + 1
+    if '_checkpoint_epoch' in dict(wandb.run.summary):
+        start_i = int(wandb.run.summary['_checkpoint_epoch']) + 1
+    else:
+        start_i = 1
+    for i in tqdm.tqdm(range(start_i, FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         if FLAGS.debug:
             break
         # batch = to_jnp(train_dataset.sample(config['batch_size']))
@@ -320,6 +374,7 @@ def main(_):
         # Save agent.
         if i % FLAGS.save_interval == 0:
             save_agent(agent, FLAGS.save_dir, i)
+            wandb.run.summary['_checkpoint_epoch'] = i
 
     train_logger.close()
     eval_logger.close()
@@ -327,7 +382,7 @@ def main(_):
     ##=========== ADD NEW DATA ===========##
     datafunc = datafuncs.get(FLAGS.data_option['method_name'], None)
     assert datafunc is not None, f'unknown data option {FLAGS.data_option}'
-    replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config, seed=FLAGS.seed, save_dir=FLAGS.save_dir, start_ij=start_ij, wandb=wandb, agent=agent)
+    replay_buffer = datafunc.create(original_dataset=train_dataset, config=FLAGS.data_option, env=env, agent_config=config, seed=FLAGS.seed, save_dir=FLAGS.save_dir, start_ij=start_ij, wandb=wandb, agent=agent, train_dataset=train_dataset)
 
     replay_buffer = dataset_class(Dataset.create(**replay_buffer), config)
     # val_dataset = dataset_class(Dataset.create(**replay_buffer, freeze=False), config)
@@ -340,7 +395,15 @@ def main(_):
     first_time = time.time()
     last_time = time.time()
 
-    for i in tqdm.tqdm(range(FLAGS.offline_steps + 1, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
+    # if PREEMPTED and wandb.run.summary.get('_further_checkpoint_epoch', 0) > 0:
+    if '_further_checkpoint_epoch' in dict(wandb.run.summary):
+        agent = restore_agent(agent, FLAGS.save_dir, int(wandb.run.summary['_further_checkpoint_epoch']))
+        start_i = int(wandb.run.summary['_further_checkpoint_epoch']) + 1
+    else:
+        start_i = 1
+
+    # start_i = FLAGS.offline_steps + 1 if not PREEMPTED else int(wandb.run.summary.get('_further_checkpoint_epoch', FLAGS.offline_steps)) + 1
+    for i in tqdm.tqdm(range(start_i, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
         # batch = to_jnp(replay_buffer.sample(config['batch_size']))
         batch = replay_buffer.sample(config['batch_size'])
         batch = to_jnp(batch)
@@ -372,6 +435,7 @@ def main(_):
         # Save agent.
         if i % FLAGS.save_interval == 0:
             save_agent(agent, FLAGS.save_dir, i)
+            wandb.run.summary['_further_checkpoint_epoch'] = i
 
     train_logger.close()
     eval_logger.close()

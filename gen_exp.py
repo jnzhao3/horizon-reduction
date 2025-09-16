@@ -2,11 +2,13 @@ import os
 import argparse
 from platform import python_branch
 import exp
+import wandb
 
 parser = argparse.ArgumentParser(description="Process some integers.")
 parser.add_argument("-j", default=2, type=int)
 parser.add_argument("--name", type=str)
 parser.add_argument("--limit", default=16, type=int)
+parser.add_argument("--wbid", type=bool, default=False)
 
 args, unknown = parser.parse_known_args()
 
@@ -54,7 +56,11 @@ def make_command_list(run_info):
     python_command_list = []
     it = iter(run_info['config'].items())
     gen = parse(it)
+    # if args.wbid:
+    #     gen.append(f" --wbid {wandb.util.generate_id()} ")
     for command in gen:
+        if args.wbid:
+            command += f" --wbid {wandb.util.generate_id()} "
         command = prefix + command.strip()
         python_command_list.append(command)
     return python_command_list

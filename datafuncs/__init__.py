@@ -12,10 +12,12 @@ from .combine_with import CombineWith
 from .randomsteps import RandomSteps
 from .ogbench import OGBench
 from .withsubgoal import WithSubgoal
+from .withrnd import WithRND
 
 datafuncs = dict(
     combine_with=CombineWith,
     randomsteps=RandomSteps,
     ogbench=OGBench,
     withsubgoal=WithSubgoal,
+    withrnd=WithRND,
 )

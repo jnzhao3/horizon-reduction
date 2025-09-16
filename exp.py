@@ -1809,3 +1809,92 @@ e2e_maze_4_4 = {
         "data_option.max_episode_steps": 20,
     }
 }
+
+# actual runs
+
+e2e_maze_4_5 = {
+    "script": "e2e.py",
+    "priority": "normal", # high, normal, low, lowest
+    "time": "1:00:00",
+    "config": {
+        "run_group": "e2e_maze_4_5",
+        "seed": (0,1,2,3),
+        "env_name": "antmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/antmaze-medium-navigate-v0",
+        "train_data_size": (100000, 1000000),
+        "save_dir": "../../scratch",
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=False",
+        # "agent.goal_proposer_type" : "default",
+        # "agent.subgoal_steps" : (50,100,200),
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.discount" : 0.995,
+        "data_option" : "datafuncs/withrnd.py",
+    }
+}
+
+e2e_maze_4_6 = {
+    "script": "e2e.py",
+    "priority": "normal", # high, normal, low, lowest
+    "time": "1:00:00",
+    "config": {
+        "run_group": "e2e_maze_4_6",
+        "seed": (0,1,2,3),
+        "env_name": "antmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/antmaze-medium-navigate-v0",
+        "train_data_size": (100000, 1000000),
+        "save_dir": "../../scratch",
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.goal_proposer_type" : "default",
+        "agent.subgoal_steps" : (50,100,200),
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.discount" : 0.995,
+        "data_option" : "datafuncs/withsubgoal.py",
+    }
+}
+
+e2e_maze_4_7 = {
+    "script": "e2e.py",
+    "priority": "normal", # high, normal, low, lowest
+    "time": "1:00:00",
+    "config": {
+        "run_group": "e2e_maze_4_7",
+        "seed": (0,1,2,3),
+        "env_name": "antmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/antmaze-medium-navigate-v0",
+        "train_data_size": (100000, 1000000),
+        "save_dir": "../../scratch",
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=False",
+        # "agent.goal_proposer_type" : "default",
+        # "agent.subgoal_steps" : (50,100,200),
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.discount" : 0.995,
+        "data_option" : "datafuncs/ogbench.py",
+    }
+}

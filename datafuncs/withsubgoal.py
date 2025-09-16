@@ -11,6 +11,7 @@ from utils.samplers import to_oracle_rep
 from utils.statistics import statistics
 import gymnasium
 from utils.plot_utils import plot_data, calculate_all_cells, bfs
+from utils.restore import restore_rb
 
 @struct.dataclass
 class WithSubgoal:
@@ -22,8 +23,16 @@ class WithSubgoal:
         '''
         Should return an expanded dataset that combines the original dataset with new datasets.
         '''
-        rbsize = original_dataset.size + config['collection_steps']
-        replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
+        if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
+            dataset = restore_rb(save_dir, int(wandb.run.summary['_datacollection_checkpoint']))
+            rbsize = original_dataset.size + config['collection_steps']
+            replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(dataset), rbsize)
+            replay_buffer.pointer = wandb.run.summary['_datacollection_checkpoint.size']
+            replay_buffer.size = wandb.run.summary['_datacollection_checkpoint.size']
+        else:
+            rbsize = original_dataset.size + config['collection_steps']
+            replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
+
         rng = jax.random.PRNGKey(seed)
         env_name = env.spec.id
         # infos = env.task_infos
@@ -48,12 +57,7 @@ class WithSubgoal:
             's': 5,
             'c': 'gray',
         }
-        data_to_plot['start'] = {
-            'x': [env.unwrapped.ij_to_xy(start_ij)[0]],
-            'y': [env.unwrapped.ij_to_xy(start_ij)[1]],
-            's': 50,
-            'c': 'red',
-        }
+        
         data_to_plot['replay buffer'] = {
             'x': np.array([]),
             'y': np.array([]),
@@ -68,6 +72,12 @@ class WithSubgoal:
             'marker': '*',
             'c': np.array([]),
             'cmap': 'plasma',
+        }
+        data_to_plot['start'] = {
+            'x': [env.unwrapped.ij_to_xy(start_ij)[0]],
+            'y': [env.unwrapped.ij_to_xy(start_ij)[1]],
+            's': 50,
+            'c': 'red',
         }
 
         ob, _ = env.reset(options=dict(task_info=dict(init_ij=start_ij, goal_ij=(0,0)))) # TODO: use goal_ij placeholder
@@ -90,6 +100,12 @@ class WithSubgoal:
             'num_successes': 0,
             'num_goals': 1,
         }
+
+        if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
+            start_i = int(wandb.run.summary['_datacollection_checkpoint']) + 1
+        else:
+            start_i = 1
+            
         for i in tqdm.tqdm(range(1, config['collection_steps'] + 1)):
 
             curr_rng, rng = jax.random.split(rng)
@@ -176,6 +192,8 @@ class WithSubgoal:
             if i != 0 and i % config['save_data_interval'] == 0:
                 print(f"Collected {i} steps")
                 np.savez(os.path.join(save_dir, f"data-{i}.npz"), **replay_buffer)
+                wandb.run.summary['_datacollection_checkpoint'] = i
+                wandb.run.summary['_datacollection_checkpoint.size'] = replay_buffer.size
                 print(f"Saved dataset to {os.path.join(save_dir, f'data-{i}.npz')}")
 
         return replay_buffer
@@ -186,7 +204,7 @@ def get_config():
             method_name='withsubgoal',
             collection_steps=1000000,
             save_data_interval=100000,
-            plot_interval=100000,
+            plot_interval=10000,
             max_episode_steps=2000, # must be a divisor of collection_steps
             noise=0.0
         )

@@ -197,7 +197,7 @@ class RNDAndSubgoal:
             })
 
             for k, v in rnd_info.items():
-                import ipdb; ipdb.set_trace()
+                # import ipdb; ipdb.set_trace()
                 wandb.log({f"data_collection/rnd_{k}": v, 'data_collection/collect_i': collect_i}, step=log_start_i + collect_i)
 
             data_to_plot['replay buffer']['x'] = np.append(data_to_plot['replay buffer']['x'], ob[0])

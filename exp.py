@@ -1944,7 +1944,7 @@ e2e_maze_3_4 = {
     "priority": "high", # high, normal, low, lowest
     "time": "24:00:00",
     "config": {
-        "run_group": "e2e_maze_3_3",
+        "run_group": "e2e_maze_3_4",
         "seed": (0,1,2,3,4,5),
         "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
         "agent": "../agents/gcfql.py",

@@ -27,7 +27,7 @@ def get_goal(vertex_cells_xy, rnd, temp=1.0):
     # goal_xy = vertex_cells_xy[goal_idx]
 
 @struct.dataclass
-class WithRND:
+class RNDAndSubgoal:
     '''
     Sample subgoals to navigate to.
     '''
@@ -217,10 +217,15 @@ class WithRND:
                 # goal_xy = vertex_cells_xy[goal_idx]
                 goal_xy, rnd_stats, rewards = get_goal(vertex_cells_xy, rnd)
                 goal_ij = env.unwrapped.xy_to_ij(goal_xy)
+                
+                goal = agent.propose_goals(observations=ob[None], goals=goal_xy[None], rng=rng)
+                goal_ij = env.unwrapped.xy_to_ij(goal[0])
+                goal_xy = goal[0]
+
                 env.unwrapped.set_goal(goal_ij)
 
                 for k, v in rnd_stats.items():
-                    import ipdb; ipdb.set_trace()
+                    # import ipdb; ipdb.set_trace()
                     wandb.log({f"data_collection/rnd_{k}": v, 'data_collection/collect_i': collect_i}, step=log_start_i + collect_i)
 
                 data_to_plot['goals']['x'] = np.append(data_to_plot['goals']['x'], goal_xy[0])
@@ -239,7 +244,7 @@ class WithRND:
                     save_dir=save_dir
                 )
 
-                import ipdb; ipdb.set_trace()
+                # import ipdb; ipdb.set_trace()
                 wandb.log({f"data_collection/rnd_reward_viz": v, 'data_collection/collect_i': collect_i}, step=log_start_i + collect_i)
                 print(f"Plotted RND rewards to {fig_name}")
                 os.remove(fig_name)
@@ -252,7 +257,7 @@ class WithRND:
             if collect_i % config['plot_interval'] == 0:
                 for k, v in stats.get_statistics().items():
                     
-                    import ipdb; ipdb.set_trace()
+                    # import ipdb; ipdb.set_trace()
                     wandb.log({f"data_collection/{k}": v, 'data_collection/collect_i': collect_i}, step=log_start_i + collect_i)
 
                 fig_name = plot_data(
@@ -265,7 +270,7 @@ class WithRND:
                 os.remove(fig_name)
 
                 for k, v in info.items():
-                    import ipdb; ipdb.set_trace()
+                    # import ipdb; ipdb.set_trace()
                     wandb.log({f"data_collection/{k}": v, 'data_collection/collect_i': collect_i}, step=log_start_i + collect_i)
 
             if collect_i != 0 and collect_i % config['save_data_interval'] == 0:
@@ -285,7 +290,7 @@ class WithRND:
 def get_config():
     config = ml_collections.ConfigDict(
         dict(
-            method_name='withrnd',
+            method_name='rndandsubgoal',
             collection_steps=1000000,
             save_data_interval=500000,
             plot_interval=10000,

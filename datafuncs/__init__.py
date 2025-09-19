@@ -13,6 +13,7 @@ from .randomsteps import RandomSteps
 from .ogbench import OGBench
 from .withsubgoal import WithSubgoal
 from .withrnd import WithRND
+from .rndandsubgoal import RNDAndSubgoal
 
 datafuncs = dict(
     combine_with=CombineWith,
@@ -20,4 +21,5 @@ datafuncs = dict(
     ogbench=OGBench,
     withsubgoal=WithSubgoal,
     withrnd=WithRND,
+    rndandsubgoal=RNDAndSubgoal,
 )

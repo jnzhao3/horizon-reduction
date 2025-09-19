@@ -102,9 +102,6 @@ def choose_start_ij(env):
 
                 vertex_cells.append((i, j))
                 
-    # maze_map = env.unwrapped.maze_map
-    # idxs = np.argwhere(maze_map == 1)
-    # i, j = idxs[np.random.choice(len(idxs))]
     init_ij = vertex_cells[np.random.randint(len(vertex_cells))]
     init_xy = env.unwrapped.ij_to_xy(init_ij)
     return {'init_ij': init_ij, 'init_xy': init_xy}
@@ -138,8 +135,9 @@ def create_task_infos(env, start_ij):
                 vertex_cells.append((i, j))
     idxs = np.argwhere(maze_map == 1)
     task_info = []
-    for task_i in range(1, NUM_TASKS + 1):
-        i, j = vertex_cells[np.random.randint(len(vertex_cells))]
+    # for task_i in range(1, NUM_TASKS + 1):
+    for task_i, (i, j) in enumerate(vertex_cells):
+        # i, j = vertex_cells[np.random.randint(len(vertex_cells))]
         task_info.append({
             'task_name': f'custom_task{task_i}',
             'init_ij': start_ij,
@@ -205,23 +203,6 @@ def main(_):
 
     if FLAGS.wbid is not None:
         api = wandb.Api()
-
-        # try:
-        #     run = api.run(f"aorl/jnzhao3/{FLAGS.wbid}")
-        #     print(f"Resuming run {run.name} with ID {run.id}")
-
-        #     import ipdb; ipdb.set_trace()
-        #     wandb.init(
-        #         id=FLAGS.wbid,
-        #         project='aorl',
-        #         group=FLAGS.run_group,
-        #         name=exp_name,
-        #         resume="must",
-        #     )
-        #     print(f"Resumed run {wandb.run.name} with ID {wandb.run.id}")
-        #     PREEMPTED = True
-        # except Exception as e:
-        #     import ipdb; ipdb.set_trace()
 
         try:
             run = api.run(f"jnzhao3/aorl/{FLAGS.wbid}")
@@ -329,13 +310,6 @@ def main(_):
     first_time = time.time()
     last_time = time.time()
 
-    # if PREEMPTED and int(wandb.run.summary['_checkpoint_epoch']) + 1 <= FLAGS.offline_steps:
-    #     start_i = int(wandb.run.summary['_checkpoint_epoch']) + 1
-    # elif PREEMPTED and int(wandb.run.summary['_checkpoint_epoch']) + 1 > FLAGS.offline_steps:
-    #     FLAGS.debug = True
-    # else:
-    #     start_i = 1
-    # start_i = 1 if not PREEMPTED else int(wandb.run.summary['_checkpoint_epoch']) + 1
     if '_checkpoint_epoch' in dict(wandb.run.summary):
         start_i = int(wandb.run.summary['_checkpoint_epoch']) + 1
     else:
@@ -402,9 +376,7 @@ def main(_):
     else:
         start_i = 1
 
-    # start_i = FLAGS.offline_steps + 1 if not PREEMPTED else int(wandb.run.summary.get('_further_checkpoint_epoch', FLAGS.offline_steps)) + 1
     for i in tqdm.tqdm(range(start_i, 2 * FLAGS.offline_steps + 1), smoothing=0.1, dynamic_ncols=True):
-        # batch = to_jnp(replay_buffer.sample(config['batch_size']))
         batch = replay_buffer.sample(config['batch_size'])
         batch = to_jnp(batch)
         agent, update_info = agent.update(batch)
@@ -413,7 +385,6 @@ def main(_):
         if i % FLAGS.log_interval == 0:
             train_metrics = {f'training/{k}': v for k, v in update_info.items()}
 
-            # val_batch = to_jnp(val_dataset.sample(config['batch_size']))
             val_batch = val_dataset.sample(config['batch_size'])
             val_batch = to_jnp(val_batch)
             _, val_info = agent.total_loss(val_batch, grad_params=None)

@@ -1976,3 +1976,40 @@ e2e_maze_3_4 = {
         "data_option" : "datafuncs/rndandsubgoal.py",
     }
 }
+
+e2e_maze_3_5 = {
+    "script": "e2e.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "24:00:00",
+    "config": {
+        "run_group": "e2e_maze_3_5",
+        "seed": (0,1,2,3,4,5),
+        "env_name": "humanoidmaze-medium-navigate-oraclerep-v0", # use oracle representation!
+        "agent": "../agents/gcfql.py",
+        "dataset_dir": "../../scratch/data/humanoidmaze-medium-navigate-v0",
+        "train_data_size": (100000, 1000000),
+        "save_dir": "../../scratch",
+        "video_episodes": 0,
+        "agent.alpha": 300,
+        "agent.actor_type": "best-of-n",
+        "agent.train_goal_proposer" : "=True",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.subgoal_steps" : (50,100,200),
+        # "json_path": "../jsons/data.json",
+        "agent.discount" : 0.995,
+        "agent.goal_proposer_type" : "actor-gc",
+        "agent.actor_hidden_dims" : "512,512,512,512",
+        "agent.value_hidden_dims" : "512,512,512,512",
+        "agent.batch_size" : 256,
+        "agent.num_actions" : 8,
+        "agent.num_qs" : 10,
+        "agent.q_agg" : "mean",
+        "agent.discount" : 0.995,
+        "data_option" : "datafuncs/rndandsubgoal.py",
+    }
+}

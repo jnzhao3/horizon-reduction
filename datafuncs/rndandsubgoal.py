@@ -26,6 +26,14 @@ def get_goal(vertex_cells_xy, rnd, temp=1.0):
     return goal_xy, rnd_stats, rewards
     # goal_xy = vertex_cells_xy[goal_idx]
 
+def get_goal(vertex_cells_xy, rnd, temp=1.0):
+    subset = np.random.choice(len(vertex_cells_xy), size=min(100, len(vertex_cells_xy)), replace=False)
+    rewards, rnd_stats = rnd.get_reward(observations=vertex_cells_xy[subset], stats=True, actions=None)
+    # goal_idx = np.argmax(rewards)
+    goal_idx = np.argmax(rewards)
+    goal_xy = vertex_cells_xy[subset][goal_idx]
+    return goal_xy, rnd_stats, rewards
+
 @struct.dataclass
 class RNDAndSubgoal:
     '''

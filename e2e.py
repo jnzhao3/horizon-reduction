@@ -23,7 +23,7 @@ from utils.log_utils import CsvLogger, get_exp_name, get_flag_dict, get_wandb_vi
 
 import numpy as np
 from utils.datasets import Dataset
-from horizon_reduction.wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
+from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
 from utils.plot_utils import plot_data
 import gymnasium
 from utils.samplers import to_oracle_rep
@@ -422,7 +422,7 @@ def main(_):
                     )
                     wandb.log({"data_collection/data_viz": wandb.Image(fig_name)}, step=global_step)
                     print(f"Plotted data to {fig_name}"); os.remove(fig_name)
-                    
+
                 if global_step % FLAGS.save_interval == 0:
                     save_agent(agent, FLAGS.save_dir, global_step)
                     np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}.npz"), **train_dataset)

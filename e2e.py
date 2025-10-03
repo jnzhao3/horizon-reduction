@@ -27,7 +27,7 @@ from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
 from utils.plot_utils import plot_data
 import gymnasium
 from utils.samplers import to_oracle_rep
-from horizon_reduction.wrappers import wrappers
+from wrappers import wrappers
 from utils.plot_utils import plot_data
 from env_wrappers import MazeEnvWrapper
 from utils.statistics import statistics

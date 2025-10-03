@@ -32,33 +32,34 @@ class WithRND:
     Sample subgoals to navigate to.
     '''
     
-    def create(original_dataset, config, train_dataset, env, seed, save_dir, start_ij, wandb, agent, **kwargs):
+    @classmethod
+    def create(cls, original_dataset, config, train_dataset, env, seed, save_dir, start_ij, wandb, agent, **kwargs):
         '''
         Should return an expanded dataset that combines the original dataset with new datasets.
         '''
-        if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
-            dataset = restore_rb(save_dir, int(wandb.run.summary['_datacollection_checkpoint']))
-            rbsize = train_dataset.size + config['collection_steps']
-            replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(dataset), rbsize)
-            replay_buffer.pointer = wandb.run.summary['_datacollection_checkpoint.size']
-            replay_buffer.size = wandb.run.summary['_datacollection_checkpoint.size']
-        else:
-            rbsize = original_dataset.size + config['collection_steps']
-            replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
+        # if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
+        #     dataset = restore_rb(save_dir, int(wandb.run.summary['_datacollection_checkpoint']))
+        #     rbsize = train_dataset.size + config['collection_steps']
+        #     replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(dataset), rbsize)
+        #     replay_buffer.pointer = wandb.run.summary['_datacollection_checkpoint.size']
+        #     replay_buffer.size = wandb.run.summary['_datacollection_checkpoint.size']
+        # else:
+        # rbsize = original_dataset.size + config['collection_steps']
+        # replay_buffer = ReplayBuffer.create_from_initial_dataset(dict(original_dataset.dataset), rbsize)
 
-        rng = jax.random.PRNGKey(seed)
+        # rng = jax.random.PRNGKey(seed)
         env_name = env.spec.id
         # infos = env.task_infos
 
         canonical_env_name = env_name
         stats = statistics[canonical_env_name](env=env)
 
-        env = gymnasium.make(
-            env.spec.id,
-            terminate_at_goal=False,
-            use_oracle_rep=True,
-            max_episode_steps=config['max_episode_steps'],
-        )
+        # env = gymnasium.make(
+        #     env.spec.id,
+        #     terminate_at_goal=False,
+        #     use_oracle_rep=True,
+        #     max_episode_steps=config['max_episode_steps'],
+        # )
 
         ##=========== SET UP GOAL SAMPLING ===========##
 
@@ -134,17 +135,20 @@ class WithRND:
             'num_goals': 1,
         }
 
+
+        return cls()
         # start_i = 1 if not PREEMPTED else int(wandb.run.summary['_datacollection_checkpoint']) + 1
-        if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
-            start_i = int(wandb.run.summary['_datacollection_checkpoint']) + 1
-        else:
-            start_i = 1
+        # if wandb.run.summary.get('_datacollection_checkpoint', 0) > 0:
+        #     start_i = int(wandb.run.summary['_datacollection_checkpoint']) + 1
+        # else:
+        #     start_i = 1
 
         
         ##=========== START DATA COLLECTION ===========##
 
-        log_start_i = wandb.run.step
-        for collect_i in tqdm.tqdm(range(start_i, config['collection_steps'] + 1)):
+        # log_start_i = wandb.run.step
+    def collect_step(self, replay_buffer, env, rng):
+        # for collect_i in tqdm.tqdm(range(start_i, config['collection_steps'] + 1)):
 
             curr_rng, rng = jax.random.split(rng)
             action = agent.sample_actions(

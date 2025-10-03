@@ -8,7 +8,7 @@ from typing import Any
 from ogbench.relabel_utils import add_oracle_reps
 import wandb
 from utils.datasets import Dataset, ReplayBuffer
-from datafuncs.datafuncs_utils import clip_dataset
+from horizon_reduction.wrappers.datafuncs_utils import clip_dataset
 from ogbench.relabel_utils import add_oracle_reps
 from ogbench import load_dataset
 import os

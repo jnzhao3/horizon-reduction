@@ -5,7 +5,7 @@ import exp
 import wandb
 
 parser = argparse.ArgumentParser(description="Process some integers.")
-parser.add_argument("-j", default=2, type=int)
+parser.add_argument("-j", default=1, type=int)
 parser.add_argument("--name", type=str)
 parser.add_argument("--limit", default=16, type=int)
 parser.add_argument("--wbid", type=bool, default=False)
@@ -95,6 +95,7 @@ sbatch_str = f"""#!/bin/bash
 #SBATCH --qos=rail_gpu4_{run_info['priority']}
 #SBATCH --requeue
 #SBATCH --array=1-{num_arr}%{limit}
+#SBATCH --signal=B:USR1@90
 
 TASK_ID=$((SLURM_ARRAY_TASK_ID-1))
 PARALLEL_N={args.j}

@@ -59,7 +59,7 @@ from utils.datasets import Dataset
 from ogbench.relabel_utils import add_oracle_reps
 
 
-from datafuncs.datafuncs_utils import make_env_and_datasets
+from horizon_reduction.wrappers.datafuncs_utils import make_env_and_datasets
 
 
 def main(_):

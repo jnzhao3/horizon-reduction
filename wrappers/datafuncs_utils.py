@@ -38,7 +38,7 @@ def clip_dataset(train_dataset, N):
         train_dataset = new_train_dataset
     return train_dataset
 
-def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_env=None, use_oracle_reps=False):
+def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_env=None, use_oracle_reps=False, env_only=False, terminate_at_goal=True, max_episode_steps=-1):
     """Make OGBench environment and datasets.
 
     Args:
@@ -50,13 +50,19 @@ def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_en
     Returns:
         A tuple of the environment (if `dataset_only` is False), training dataset, and validation dataset.
     """
+    if env_only:
+        if max_episode_steps > 0:
+            env = ogbench.make_env_and_datasets(
+                dataset_name, dataset_path=dataset_path, compact_dataset=False, env_only=env_only, cur_env=cur_env, add_info=True, terminate_at_goal=terminate_at_goal, max_episode_steps=max_episode_steps
+            )
+        return env
     if dataset_only:
         train_dataset, val_dataset = ogbench.make_env_and_datasets(
-            dataset_name, dataset_path=dataset_path, compact_dataset=False, dataset_only=dataset_only, cur_env=cur_env, add_info=True
+            dataset_name, dataset_path=dataset_path, compact_dataset=False, dataset_only=dataset_only, cur_env=cur_env, add_info=True, terminate_at_goal=terminate_at_goal
         )
     else:
         env, train_dataset, val_dataset = ogbench.make_env_and_datasets(
-            dataset_name, dataset_path=dataset_path, compact_dataset=False, dataset_only=dataset_only, cur_env=cur_env, add_info=True
+            dataset_name, dataset_path=dataset_path, compact_dataset=False, dataset_only=dataset_only, cur_env=cur_env, add_info=True, terminate_at_goal=terminate_at_goal
         )
 
     if use_oracle_reps:

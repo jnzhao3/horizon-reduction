@@ -14,6 +14,7 @@ import wandb
 from absl import app, flags
 from ml_collections import config_flags
 import wandb.util
+from zmq import has
 
 from agents import agents
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
@@ -81,14 +82,9 @@ def handle_preempt(signum, frame):
 for sig in (signal.SIGUSR1, signal.SIGTERM):
     signal.signal(sig, handle_preempt)
 
-def checkpoint_and_exit(agent, train_dataset, save_dir, global_step,
+def checkpoint_and_exit(agent, train_dataset, val_dataset, save_dir, global_step,
                         train_logger=None, eval_logger=None, *,
                         reason="preempt"):
-    # atomic write for step
-    tmp = pathlib.Path(save_dir) / "global_step.tmp"
-    final = pathlib.Path(save_dir) / "global_step"
-    tmp.write_text(str(global_step))
-    tmp.replace(final)
 
     # agent & data
     save_agent(agent, save_dir, global_step)
@@ -98,9 +94,21 @@ def checkpoint_and_exit(agent, train_dataset, save_dir, global_step,
     else:
         np.savez(os.path.join(save_dir, f"data-{global_step}.npz"), **train_dataset)
 
+    if hasattr(val_dataset, "dataset"):
+        np.savez(os.path.join(save_dir, f"data-{global_step}-val.npz"), **val_dataset.dataset)
+    else:
+        np.savez(os.path.join(save_dir, f"data-{global_step}-val.npz"), **val_dataset)
+
     # close logs, finish wandb
     if train_logger: train_logger.close()
     if eval_logger:  eval_logger.close()
+
+    # atomic write for step
+    tmp = pathlib.Path(save_dir) / "global_step.tmp"
+    final = pathlib.Path(save_dir) / "global_step"
+    tmp.write_text(str(global_step))
+    tmp.replace(final)
+    
     try:
         wandb.alert(title="Preempted", text=f"Checkpointed at step {global_step} ({reason})")
     except Exception:
@@ -158,6 +166,7 @@ def main(_):
 
     global_step_file = pathlib.Path(FLAGS.save_dir) / "global_step"
     if global_step_file.exists() and int(global_step_file.read_text().strip()) > 0:
+        
         global_step = int(global_step_file.read_text().strip())
         print(f"Restoring from epoch {global_step}")
 
@@ -165,8 +174,25 @@ def main(_):
         np.random.seed(FLAGS.seed)
 
         dataset_path = pathlib.Path(FLAGS.save_dir) / f"data-{global_step}.npz"
-        env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=dataset_path, use_oracle_reps=True)
+        env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=str(dataset_path), use_oracle_reps=True)
         env = MazeEnvWrapper(env, seed=FLAGS.seed)
+
+        # the following requires that compact_dataset=False
+        file = np.load(dataset_path)
+        train_dataset = dict()
+        for k in file.files:
+            # if k == 'observations':
+            #     dtype = ob_dtype
+            # elif k == 'actions':
+            #     dtype = action_dtype
+            # else:
+            #     dtype = np.float32
+            train_dataset[k] = file[k][...] #.astype(dtype, copy=False)
+
+        file = np.load(pathlib.Path(FLAGS.save_dir) / f"data-{global_step}-val.npz")
+        val_dataset = dict()
+        for k in file.files:
+            val_dataset[k] = file[k][...] #.astype(dtype, copy=False)
 
         random.seed(FLAGS.seed); np.random.seed(FLAGS.seed)
 
@@ -178,6 +204,8 @@ def main(_):
             'GCDataset': GCDataset,
             'HGCDataset': HGCDataset,
         }
+
+        config = FLAGS.agent
 
         dataset_class = dataset_class_dict[FLAGS.agent['dataset_class']]
         train_dataset = dataset_class(Dataset.create(**train_dataset, freeze=False), FLAGS.agent)
@@ -194,6 +222,10 @@ def main(_):
         agent = restore_agent(agent, FLAGS.save_dir, global_step)
 
         data_collection_env = None
+        if global_step < FLAGS.offline_steps or FLAGS.offline_steps + FLAGS.collection_steps <= global_step:
+            train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
+            eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
+            first_time = time.time(); last_time = time.time()
     else:
         global_step = 0
         global_step_file.write_text(str(global_step))
@@ -236,7 +268,7 @@ def main(_):
         data_collection_env = None
 
     ##=========== MAIN LOOP ===========##
-    with tqdm.tqdm(total=total_steps) as pbar:
+    with tqdm.tqdm(total=total_steps, initial=global_step) as pbar:
         while global_step < total_steps:
 
             ##=========== INITIAL TRAINING ===========##
@@ -266,7 +298,7 @@ def main(_):
                 agent, update_info = agent.update(batch)
                 global_step += 1; pbar.update(1)
                 if PREEMPTED["flag"]:
-                    checkpoint_and_exit(agent, train_dataset, FLAGS.save_dir, global_step,
+                    checkpoint_and_exit(agent, train_dataset, val_dataset, FLAGS.save_dir, global_step,
                                         train_logger if 'train_logger' in locals() else None,
                                         eval_logger   if 'eval_logger'   in locals() else None,
                                         reason="signal")
@@ -305,6 +337,7 @@ def main(_):
                 if global_step % FLAGS.save_interval == 0:
                     save_agent(agent, FLAGS.save_dir, global_step)
                     np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}.npz"), **train_dataset.dataset)
+                    np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}-val.npz"), **val_dataset.dataset)
                     global_step_file.write_text(str(global_step))
             
                 if global_step == FLAGS.offline_steps:
@@ -333,6 +366,12 @@ def main(_):
                     rbsize = FLAGS.train_data_size + FLAGS.collection_steps
                     train_dataset = ReplayBuffer.create_from_initial_dataset(dict(train_dataset.dataset), rbsize)
                     rng = jax.random.PRNGKey(FLAGS.seed)
+
+                    num_additional = global_step - FLAGS.offline_steps
+                    
+                    assert FLAGS.train_data_size + num_additional < rbsize
+                    train_dataset.pointer = FLAGS.train_data_size + num_additional
+                    train_dataset.size = train_dataset.pointer
 
                     collection_agent, pre_info = collection_agent.pre()
                     for k, v in pre_info.items():
@@ -394,7 +433,7 @@ def main(_):
                     wandb.log({f'data_collection/post/{k}': v}, step=global_step)
                 global_step += 1; pbar.update(1)
                 if PREEMPTED["flag"]:
-                    checkpoint_and_exit(agent, train_dataset, FLAGS.save_dir, global_step,
+                    checkpoint_and_exit(agent, train_dataset, val_dataset, FLAGS.save_dir, global_step,
                                         train_logger if 'train_logger' in locals() else None,
                                         eval_logger   if 'eval_logger'   in locals() else None,
                                         reason="signal")
@@ -423,9 +462,11 @@ def main(_):
                     wandb.log({"data_collection/data_viz": wandb.Image(fig_name)}, step=global_step)
                     print(f"Plotted data to {fig_name}"); os.remove(fig_name)
 
+                # TODO: clip agent before saving it, or set the pointer to the correct position
                 if global_step % FLAGS.save_interval == 0:
                     save_agent(agent, FLAGS.save_dir, global_step)
                     np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}.npz"), **train_dataset)
+                    np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}-val.npz"), **val_dataset.dataset)
                     global_step_file.write_text(str(global_step))
 
                 if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
@@ -447,7 +488,7 @@ def main(_):
                 agent, update_info = agent.update(batch)
                 global_step += 1; pbar.update(1)
                 if PREEMPTED["flag"]:
-                    checkpoint_and_exit(agent, train_dataset, FLAGS.save_dir, global_step,
+                    checkpoint_and_exit(agent, train_dataset, val_dataset, FLAGS.save_dir, global_step,
                                         train_logger if 'train_logger' in locals() else None,
                                         eval_logger   if 'eval_logger'   in locals() else None,
                                         reason="signal")
@@ -487,6 +528,7 @@ def main(_):
                 if global_step % FLAGS.save_interval == 0:
                     save_agent(agent, FLAGS.save_dir, global_step)
                     np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}.npz"), **train_dataset.dataset)
+                    np.savez(os.path.join(FLAGS.save_dir, f"data-{global_step}-val.npz"), **val_dataset.dataset)
                     global_step_file.write_text(str(global_step))
 
                 ##=========== END MAIN LOOP ===========##

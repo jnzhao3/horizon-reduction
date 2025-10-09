@@ -25,7 +25,9 @@
 # )
 
 from .withrnd import WithRND
+from .randomsteps import RandomSteps
 
 wrappers = dict(
     withrnd=WithRND,
+    randomsteps=RandomSteps
 )

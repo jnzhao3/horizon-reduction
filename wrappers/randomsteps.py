@@ -1,0 +1,97 @@
+import ml_collections
+import jax
+from typing import Any
+from flax import struct
+# from agents.rnd import RND
+from utils.datasets import GCDataset
+import jax.numpy as jnp
+import numpy as np
+
+@struct.dataclass
+class RandomSteps:
+    '''
+    Sample subgoals, then use subgoal generator to navigat to.
+    '''
+
+    agent: Any
+    # rnd: Any
+    config: ml_collections.ConfigDict
+    potential_goals: Any = None
+    curr_goal: Any = None
+
+    @classmethod
+    def create(cls, agent, train_dataset, config: ml_collections.ConfigDict, **kwargs):
+        rnd_config = ml_collections.ConfigDict(
+            dict(
+                agent_name='rnd',
+                lr=config['rnd_lr'],
+                coeff=config['rnd_coeff'],
+                hidden_dims=config['rnd_hidden_dims'],
+            )
+        )
+
+        if type(train_dataset) == GCDataset:
+            train_dataset = train_dataset.dataset
+
+        # observation_example = train_dataset['oracle_reps'][0]
+        # action_example = train_dataset['actions'][0]
+        # assert 'oracle_reps' in train_dataset, 'RND needs oracle_reps in the dataset'
+        potential_goals = train_dataset['oracle_reps']
+        
+        # rnd = RND.create(config['rnd_seed'], observation_example=observation_example, action_example=action_example, config=rnd_config)
+        return cls(agent=agent, potential_goals=potential_goals, config=config)
+    
+    def pre(self, **kwargs):
+        if self.curr_goal is None:
+            curr_goal, rnd_stats = self.get_goal()
+            # rnd_stats.update({'goals': curr_goal})
+            # return self, rnd_stats
+            return self.replace(curr_goal=curr_goal), rnd_stats
+        # else:
+        return self, {}
+
+    def get_goal(self):
+        # subset = np.random.choice(self.potential_goals.shape[0], size=min(1000, self.potential_goals.shape[0]), replace=False)
+        # subset_goals = self.potential_goals[subset]
+        # rewards, rnd_stats = self.rnd.get_reward(observations=subset_goals, actions=None, stats=True)
+        # TODO: make this random sample then select, to add noise
+        idx = np.random.choice(self.potential_goals.shape[0], size=1)[0]
+        goal_xy = self.potential_goals[idx]
+        return goal_xy, {'goal_xy': goal_xy}
+    
+    def sample_actions(self, observations, goals=None, seed=None, pre_info=None, **kwargs):
+        action_info = {}
+        # goals = pre_info['curr_goal']
+        goals = self.curr_goal
+        actions = self.agent.sample_actions(observations=observations, goals=goals, seed=seed)
+        return actions, action_info
+    
+    def post(self, transition, **kwargs):
+        # rnd, rnd_info = self.rnd.update(batch={
+        #     'observations': transition['oracle_reps'],
+        #     'actions': None,
+        # })
+        # post_info = rnd_info
+
+        if transition['terminals'] == 1.0:
+            curr_goal, rnd_stats = self.get_goal()
+            # rnd_stats.update({'goals': curr_goal})
+            # return self, rnd_stats
+            # return self.replace(curr_goal=curr_goal), rnd_stats
+            # post_info.update(rnd_stats)
+            # curr_goal = curr_goal + np.random.normal(0, 10, size=curr_goal.shape)  # add some noise
+            return self.replace(curr_goal=curr_goal), {}
+        return self, {}
+
+def get_config():
+    config = ml_collections.ConfigDict(
+        dict(
+            method_name='randomsteps',
+            rnd_lr=1e-4,
+            rnd_coeff=1.0,
+            rnd_hidden_dims=[512, 512, 512],
+            rnd_seed=0,
+            max_episode_steps=2000,  # max episode steps for env
+        )
+    )
+    return config

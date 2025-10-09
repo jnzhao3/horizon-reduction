@@ -511,15 +511,16 @@ def main(_):
 
                 # Evaluate agent.
                 if FLAGS.eval_interval != 0 and (global_step == 1 or global_step % FLAGS.eval_interval == 0):
-                    eval_metrics = env.evaluate_step(agent, 
-                                                    config,
-                                                    env_name=FLAGS.env_name,
-                                                    eval_episodes=FLAGS.eval_episodes,
-                                                    video_episodes=FLAGS.video_episodes,
-                                                    video_frame_skip=FLAGS.video_frame_skip,
-                                                    eval_temperature=FLAGS.eval_temperature,
-                                                    eval_gaussian=FLAGS.eval_gaussian,
-                                                    )
+                    eval_metrics = env.evaluate_step(
+                        agent, 
+                        config,
+                        env_name=FLAGS.env_name,
+                        eval_episodes=FLAGS.eval_episodes,
+                        video_episodes=FLAGS.video_episodes,
+                        video_frame_skip=FLAGS.video_frame_skip,
+                        eval_temperature=FLAGS.eval_temperature,
+                        eval_gaussian=FLAGS.eval_gaussian,
+                    )
 
                     wandb.log(eval_metrics, step=global_step)
                     eval_logger.log(eval_metrics, step=global_step)

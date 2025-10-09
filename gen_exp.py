@@ -5,7 +5,7 @@ import exp
 import wandb
 
 parser = argparse.ArgumentParser(description="Process some integers.")
-parser.add_argument("-j", default=1, type=int)
+parser.add_argument("-j", default=2, type=int)
 parser.add_argument("--name", type=str)
 parser.add_argument("--limit", default=16, type=int)
 parser.add_argument("--wbid", type=bool, default=False)

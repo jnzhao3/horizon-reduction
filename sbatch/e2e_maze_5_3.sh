@@ -11,11 +11,11 @@
 #SBATCH --partition=savio4_gpu
 #SBATCH --qos=rail_gpu4_high
 #SBATCH --requeue
-#SBATCH --array=1-48%16
+#SBATCH --array=1-24%16
 #SBATCH --signal=B:USR1@90
 
 TASK_ID=$((SLURM_ARRAY_TASK_ID-1))
-PARALLEL_N=1
+PARALLEL_N=2
 JOB_N=48
 
 COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
@@ -76,4 +76,4 @@ declare -a commands=(
 
 cd /home/jennifer/aorl/horizon_reduction
 
-parallel --delay 20 --linebuffer -j 1 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"
+parallel --delay 20 --linebuffer -j 2 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"

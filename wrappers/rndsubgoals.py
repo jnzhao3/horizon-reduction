@@ -43,22 +43,22 @@ class RNDSubgoals:
     
     def pre(self, **kwargs):
         if self.curr_goal is None:
-            curr_goal, rnd_stats = self.get_goal(observations=kwargs['observations'])
+            curr_goal, rnd_stats = self.get_goal(observations=kwargs['observations'], rng=kwargs['rng'])
             # rnd_stats.update({'goals': curr_goal})
             # return self, rnd_stats
             return self.replace(curr_goal=curr_goal), rnd_stats
         # else:
         return self, {}
 
-    def get_goal(self, observation):
+    def get_goal(self, observations, rng):
         subset = np.random.choice(self.potential_goals.shape[0], size=min(1000, self.potential_goals.shape[0]), replace=False)
         subset_goals = self.potential_goals[subset]
         rewards, rnd_stats = self.rnd.get_reward(observations=subset_goals, actions=None, stats=True)
         # TODO: make this random sample then select, to add noise
         goal_xy = self.potential_goals[jnp.argmax(rewards)]
 
-        subgoal = self.agent.propose_goals(observations=observation[None], goals=goal_xy[None])
-        return subgoal, rnd_stats
+        subgoal = self.agent.propose_goals(observations=observations[None], goals=goal_xy[None], rng=rng)
+        return subgoal[0], rnd_stats
     
     def sample_actions(self, observations, goals=None, seed=None, pre_info=None, **kwargs):
         action_info = {}
@@ -75,7 +75,7 @@ class RNDSubgoals:
         post_info = rnd_info
 
         if transition['terminals'] == 1.0:
-            curr_goal, rnd_stats = self.get_goal(observations=transition['observations'])
+            curr_goal, rnd_stats = self.get_goal(observations=transition['observations'], rng=kwargs['rng'])
             # rnd_stats.update({'goals': curr_goal})
             # return self, rnd_stats
             # return self.replace(curr_goal=curr_goal), rnd_stats

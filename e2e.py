@@ -373,7 +373,7 @@ def main(_):
                     train_dataset.pointer = FLAGS.train_data_size + num_additional
                     train_dataset.size = train_dataset.pointer
 
-                    ob, _ = data_collection_env.reset(options=dict(task_info=dict(init_ij=env.start_ij)))
+                    ob, _ = data_collection_env.reset(options=dict(task_info=dict(init_ij=env.start_ij, goal_ij=env.start_ij))) # placeholder goal
                     collection_agent, pre_info = collection_agent.pre(observations=ob, rng=rng)
                     for k, v in pre_info.items():
                         wandb.log({f'data_collection/pre/{k}': v}, step=global_step)
@@ -429,7 +429,7 @@ def main(_):
                 ##=========== END STEP ENVIRONMENT ===========##
 
                 ##=========== POST ===========##
-                collection_agent, post_info = collection_agent.post(transition=tran)
+                collection_agent, post_info = collection_agent.post(transition=tran, rng=rng)
                 for k, v in post_info.items():
                     wandb.log({f'data_collection/post/{k}': v}, step=global_step)
                 global_step += 1; pbar.update(1)

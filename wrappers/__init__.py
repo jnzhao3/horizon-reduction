@@ -26,8 +26,10 @@
 
 from .withrnd import WithRND
 from .randomsteps import RandomSteps
+from .rndsubgoals import RNDSubgoals
 
 wrappers = dict(
     withrnd=WithRND,
-    randomsteps=RandomSteps
+    randomsteps=RandomSteps,
+    rndsubgoals=RNDSubgoals,
 )

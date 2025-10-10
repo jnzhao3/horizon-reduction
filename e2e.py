@@ -54,8 +54,8 @@ flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 1000000, 'Number of offline steps.')
-flags.DEFINE_integer('log_interval', 100000, 'Logging interval.')
-flags.DEFINE_integer('eval_interval', 100000, 'Evaluation interval.')
+flags.DEFINE_integer('log_interval', 1000, 'Logging interval.')
+flags.DEFINE_integer('eval_interval', 10000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 100000, 'Saving interval.')
 flags.DEFINE_integer('collection_steps', 1000000, 'Number of data collection steps.')
 flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
@@ -373,7 +373,8 @@ def main(_):
                     train_dataset.pointer = FLAGS.train_data_size + num_additional
                     train_dataset.size = train_dataset.pointer
 
-                    collection_agent, pre_info = collection_agent.pre()
+                    ob, _ = data_collection_env.reset(options=dict(task_info=dict(init_ij=env.start_ij)))
+                    collection_agent, pre_info = collection_agent.pre(observations=ob, rng=rng)
                     for k, v in pre_info.items():
                         wandb.log({f'data_collection/pre/{k}': v}, step=global_step)
 
@@ -393,7 +394,7 @@ def main(_):
                     stats = statistics[FLAGS.env_name](env=data_collection_env)
                 else:
                     ##=========== PRE ===========##
-                    collection_agent, pre_info = collection_agent.pre()
+                    collection_agent, pre_info = collection_agent.pre(observations=ob, rng=rng)
                     for k, v in pre_info.items():
                         wandb.log({f'data_collection/pre/{k}': v}, step=global_step)
 
@@ -535,6 +536,8 @@ def main(_):
                 ##=========== END MAIN LOOP ===========##
                 if global_step == total_steps:
                     train_logger.close(); eval_logger.close()
+        
+            wandb.log({'global_step': global_step})
 
 if __name__ == '__main__':
     app.run(main)

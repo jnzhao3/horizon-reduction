@@ -43,7 +43,8 @@ class WithRND:
 
         if config.get('pre_init', False):
             print('Pre-initializing RND with dataset...')
-            for i in tqdm.tqdm(range(0, train_dataset.shape[0], 1)):
+
+            for i in tqdm.tqdm(range(0, train_dataset['observations'].shape[0], 1)):
                 rnd, rnd_info = rnd.update(
                     batch={
                         'observations': train_dataset['oracle_reps'][i:i + 1, :],
@@ -52,7 +53,8 @@ class WithRND:
                 )
 
                 if i % 10000 == 0:
-                    print(f'Pre-initializing RND: {i}/{train_dataset.shape[0]}')
+                    # print(f'Pre-initializing RND: {i}/{train_dataset['ob'].shape[0]}')
+                    print(f'RND Info at step {i}:', rnd_info)
             print('Done pre-initializing RND.')
 
         return cls(agent=agent, rnd=rnd, potential_goals=potential_goals, config=config)

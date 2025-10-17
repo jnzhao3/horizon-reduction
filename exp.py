@@ -2343,7 +2343,7 @@ e2e_maze_7_2 = {
 e2e_maze_7_3 = {
     "script": "e2e.py",
     "priority": "high", # high, normal, low, lowest
-    "time": "10:00:00",
+    "time": "24:00:00",
     "config": {
         "run_group": "e2e_maze_7_3",
         "seed": (0,1,2,3),
@@ -2410,8 +2410,8 @@ e2e_maze_8_1 = {
         "wrapper" : "wrappers/withrnd.py",
         "wrapper.max_episode_steps": 2000,
         "wrapper.pre_init": "=True",
-        "offline_steps": 10000,
-        "collection_steps": (1000000, 2000000),
-        "video_episodes": 1,
+        "offline_steps": 1000,
+        "collection_steps": (10000, 2000000),
+        "video_episodes": 0,
     }
 }

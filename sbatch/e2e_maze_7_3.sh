@@ -3,7 +3,7 @@
 #SBATCH --open-mode=append
 #SBATCH -o /global/scratch/users/jenniferzhao/logs/%A_%a.out
 #SBATCH -e /global/scratch/users/jenniferzhao/logs/%A_%a.err
-#SBATCH --time=10:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:A5000:1

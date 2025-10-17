@@ -6,6 +6,7 @@ from agents.rnd import RND
 from utils.datasets import GCDataset
 import jax.numpy as jnp
 import numpy as np
+import tqdm
 
 @struct.dataclass
 class WithRND:
@@ -39,6 +40,21 @@ class WithRND:
         potential_goals = train_dataset['oracle_reps']
         
         rnd = RND.create(config['rnd_seed'], observation_example=observation_example, action_example=action_example, config=rnd_config)
+
+        if config.get('pre_init', False):
+            print('Pre-initializing RND with dataset...')
+            for i in tqdm.tqdm(range(0, train_dataset.shape[0], 1)):
+                rnd, rnd_info = rnd.update(
+                    batch={
+                        'observations': train_dataset['oracle_reps'][i:i + 1, :],
+                        'actions': None,
+                    }
+                )
+
+                if i % 10000 == 0:
+                    print(f'Pre-initializing RND: {i}/{train_dataset.shape[0]}')
+            print('Done pre-initializing RND.')
+
         return cls(agent=agent, rnd=rnd, potential_goals=potential_goals, config=config)
     
     def pre(self, **kwargs):
@@ -91,6 +107,7 @@ def get_config():
             rnd_hidden_dims=[512, 512, 512],
             rnd_seed=0,
             max_episode_steps=2000,  # max episode steps for env
+            pre_init=False,
         )
     )
     return config

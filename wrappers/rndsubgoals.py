@@ -55,7 +55,7 @@ class RNDSubgoals:
                     # print(f'Pre-initializing RND: {i}/{train_dataset['ob'].shape[0]}')
                     print(f'RND Info at step {i}:', rnd_info)
             print('Done pre-initializing RND.')
-            
+
         return cls(agent=agent, rnd=rnd, potential_goals=potential_goals, config=config)
     
     def pre(self, **kwargs):
@@ -110,7 +110,7 @@ def get_config():
             rnd_hidden_dims=[512, 512, 512],
             rnd_seed=0,
             max_episode_steps=2000,  # max episode steps for env
-            pre_inti=False,
+            pre_init=False,
         )
     )
     return config

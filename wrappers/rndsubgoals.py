@@ -6,6 +6,7 @@ from agents.rnd import RND
 from utils.datasets import GCDataset
 import jax.numpy as jnp
 import numpy as np
+import tqdm
 
 @struct.dataclass
 class RNDSubgoals:

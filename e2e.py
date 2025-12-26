@@ -14,7 +14,6 @@ import wandb
 from absl import app, flags
 from ml_collections import config_flags
 import wandb.util
-from zmq import has
 
 from agents import agents
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer

@@ -2453,7 +2453,7 @@ e2e_maze_8_2 = {
 
 e2e_maze_8_3 = {
     "script": "e2e.py",
-    "priority": "low", # high, normal, low, lowest
+    "priority": "normal", # high, normal, low, lowest
     "time": "24:00:00",
     "config": {
         "run_group": "e2e_maze_8_3",

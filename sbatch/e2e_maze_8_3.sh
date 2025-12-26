@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:A5000:1
 #SBATCH --account=co_rail
 #SBATCH --partition=savio4_gpu
-#SBATCH --qos=rail_gpu4_low
+#SBATCH --qos=rail_gpu4_normal
 #SBATCH --requeue
 #SBATCH --array=1-24%16
 #SBATCH --signal=B:USR1@90

@@ -14,6 +14,7 @@ from .ogbench import OGBench
 from .withsubgoal import WithSubgoal
 from .withrnd import WithRND
 from .rndandsubgoal import RNDAndSubgoal
+from .randomsubgoals import RandomSubgoals
 
 datafuncs = dict(
     combine_with=CombineWith,
@@ -22,4 +23,5 @@ datafuncs = dict(
     withsubgoal=WithSubgoal,
     withrnd=WithRND,
     rndandsubgoal=RNDAndSubgoal,
+    randomsubgoals=RandomSubgoals
 )

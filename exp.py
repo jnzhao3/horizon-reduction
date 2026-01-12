@@ -2548,10 +2548,11 @@ e2e_maze_9_2 = {
         "agent.discount" : 0.995,
         "wrapper" : "wrappers/randomsteps.py",
         "wrapper.max_episode_steps": 2000,
-        "wrapper.pre_init": "=True",
-        "offline_steps": 500,
-        "collection_steps": 1000,
+        "data_plot_interval": 1000,
+        # "wrapper.pre_init": "=True",
+        "offline_steps": 6000,
+        "collection_steps": 6000,
         "video_episodes": 1,
-        # "eval_episodes": 0,
+        "eval_episodes": 0,
     }
 }

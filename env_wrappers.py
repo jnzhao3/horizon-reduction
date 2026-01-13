@@ -86,14 +86,15 @@ class MazeEnvWrapper(gymnasium.Wrapper):
                         video_frame_skip=3,
                         eval_temperature=0,
                         eval_gaussian=None,
+                        return_trajs=False
                         ):
         renders = []
         eval_metrics = {}
         overall_metrics = defaultdict(list)
-        # if task_info is not None:
-        #     task_infos = task_info
-        # else:
-        #     task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
+
+        if return_trajs:
+            all_trajs = {}
+        
         num_tasks = len(self.task_infos)
         for task_id in tqdm.trange(1, num_tasks + 1):
             task_name = self.task_infos[task_id - 1]['task_name']
@@ -117,6 +118,12 @@ class MazeEnvWrapper(gymnasium.Wrapper):
             eval_metrics.update(
                 {f'evaluation/{task_name}_{k}': v for k, v in eval_info.items() if k in metric_names}
             )
+
+            if return_trajs:
+                all_trajs.update(
+                    {f'evaluation/{task_name}': trajs}
+                )
+
             for k, v in eval_info.items():
                 if k in metric_names:
                     overall_metrics[k].append(v)
@@ -127,4 +134,6 @@ class MazeEnvWrapper(gymnasium.Wrapper):
                 video = get_wandb_video(renders=renders, n_cols=5)
                 eval_metrics['video'] = video
 
+        if return_trajs:
+            return eval_metrics, all_trajs
         return eval_metrics

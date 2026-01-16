@@ -171,12 +171,12 @@ def main(args):
             train_dataset.add_transition(tran)
             counter += 1; pbar.update(1)
 
-    np.savez(os.path.join(DIR, f'data-{args.collection_steps}.npz'), **train_dataset.dataset)
-
     ##=========== TRAIN ===========##
     print('training now!')
 
     train_dataset = GCDataset(Dataset.create(**train_dataset), config)
+
+    np.savez(os.path.join(DIR, f'data-{args.collection_steps}.npz'), **train_dataset.dataset)
 
     env.task_infos = [{
                 'task_name': f'{task_start} to {task_end}',

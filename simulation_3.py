@@ -178,33 +178,6 @@ def main(args):
 
     np.savez(os.path.join(DIR, f'data-{args.collection_steps}.npz'), **train_dataset.dataset)
 
-    env.task_infos = [{
-                'task_name': f'{task_start} to {task_end}',
-                'init_ij': env.unwrapped.xy_to_ij(task_start),
-                'init_xy': task_start,
-                'goal_ij': env.unwrapped.xy_to_ij(task_end),
-                'goal_xy': task_end
-            }]
-    
-    for step in tqdm(range(1, args.train_steps + 1)):
-
-        batch = train_dataset.sample(batch_size)
-        agent, update_info = agent.update(batch)
-        
-        ##=========== EVALUATION ===========##
-        if step % args.eval_interval == 0:
-            eval_metrics, all_trajs = env.evaluate_step(agent=agent, config=config, eval_episodes=args.num_eval_episodes, return_trajs=True)
-            with open(f'{DIR}/all_trajs-{step}.pkl', 'wb') as f:
-                pickle.dump(all_trajs, f)
-
-            save_agent(agent, DIR, step)
-
-            ##=========== LOG AND PLOT WANDB ===========##
-            if not args.debug:
-                wandb.log(eval_metrics, step=step)
-
-    ##=========== END SAVE DATA AND CHECKPOINTS ===========##
-
     ##=========== PLOT THINGS ===========##
     all_cells = env.all_cells
     fig_name = f'{DIR}/plot.png'
@@ -232,6 +205,33 @@ def main(args):
         wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=step)
         os.remove(fig_name)
     ##=========== END PLOT THINGS ===========##
+
+    env.task_infos = [{
+                'task_name': f'{task_start} to {task_end}',
+                'init_ij': env.unwrapped.xy_to_ij(task_start),
+                'init_xy': task_start,
+                'goal_ij': env.unwrapped.xy_to_ij(task_end),
+                'goal_xy': task_end
+            }]
+    
+    for step in tqdm(range(1, args.train_steps + 1)):
+
+        batch = train_dataset.sample(batch_size)
+        agent, update_info = agent.update(batch)
+        
+        ##=========== EVALUATION ===========##
+        if step % args.eval_interval == 0:
+            eval_metrics, all_trajs = env.evaluate_step(agent=agent, config=config, eval_episodes=args.num_eval_episodes, return_trajs=True)
+            with open(f'{DIR}/all_trajs-{step}.pkl', 'wb') as f:
+                pickle.dump(all_trajs, f)
+
+            save_agent(agent, DIR, step)
+
+            ##=========== LOG AND PLOT WANDB ===========##
+            if not args.debug:
+                wandb.log(eval_metrics, step=step)
+
+    ##=========== END SAVE DATA AND CHECKPOINTS ===========##
 
 
     if not args.debug:

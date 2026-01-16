@@ -171,6 +171,8 @@ def main(args):
             train_dataset.add_transition(tran)
             counter += 1; pbar.update(1)
 
+    np.savez(os.path.join(DIR, f'data-{args.collection_steps}.npz'), **train_dataset.dataset)
+
     ##=========== TRAIN ===========##
     print('training now!')
 
@@ -195,13 +197,12 @@ def main(args):
             with open(f'{DIR}/all_trajs-{step}.pkl', 'wb') as f:
                 pickle.dump(all_trajs, f)
 
+            save_agent(agent, DIR, step)
+
             ##=========== LOG AND PLOT WANDB ===========##
             if not args.debug:
                 wandb.log(eval_metrics, step=step)
 
-    ##=========== SAVE DATA AND CHECKPOINTS ===========##
-    save_agent(agent, DIR, step)
-    np.savez(os.path.join(DIR, f'data-{step}.npz'), **train_dataset.dataset)
     ##=========== END SAVE DATA AND CHECKPOINTS ===========##
 
     ##=========== PLOT THINGS ===========##

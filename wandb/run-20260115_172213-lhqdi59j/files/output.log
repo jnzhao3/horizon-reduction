@@ -1,0 +1,10 @@
+Collection 100 transitions now!
+  0%|                                                     | 0/100 [00:00<?, ?it/s]
+terminated: False, truncated: False
+Traceback (most recent call last):
+  File "/home/jennifer/aorl/horizon_reduction/simulation_3.py", line 237, in <module>
+    main(args)
+  File "/home/jennifer/aorl/horizon_reduction/simulation_3.py", line 127, in main
+    goal_xy = np.random.choice(potential_goals)
+  File "numpy/random/mtrand.pyx", line 947, in numpy.random.mtrand.RandomState.choice
+ValueError: a must be 1-dimensional

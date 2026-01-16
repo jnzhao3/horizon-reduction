@@ -1,0 +1,18 @@
+{"time":"2026-01-15T17:29:45.992689559-08:00","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"/home/jennifer/aorl/horizon_reduction/wandb/run-20260115_172945-wzvhvhrm/logs/debug-core.log"}
+{"time":"2026-01-15T17:29:46.303820947-08:00","level":"INFO","msg":"stream: created new stream","id":"wzvhvhrm"}
+{"time":"2026-01-15T17:29:46.303892664-08:00","level":"INFO","msg":"stream: started","id":"wzvhvhrm"}
+{"time":"2026-01-15T17:29:46.304014562-08:00","level":"INFO","msg":"writer: Do: started","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:29:46.30408593-08:00","level":"INFO","msg":"sender: started","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:29:46.304175358-08:00","level":"INFO","msg":"handler: started","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:29:46.667660614-08:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-01-15T17:31:47.896293188-08:00","level":"INFO","msg":"stream: closing","id":"wzvhvhrm"}
+{"time":"2026-01-15T17:31:47.896364765-08:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-01-15T17:31:47.896458635-08:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-01-15T17:31:47.896871843-08:00","level":"ERROR","msg":"sender: failed to upload run summary: write /home/jennifer/aorl/horizon_reduction/wandb/run-20260115_172945-wzvhvhrm/files/wandb-summary.json: no space left on device"}
+{"time":"2026-01-15T17:31:47.898351187-08:00","level":"ERROR","msg":"sender: failed to upload run config: write /home/jennifer/aorl/horizon_reduction/wandb/run-20260115_172945-wzvhvhrm/files/config.yaml: no space left on device"}
+{"time":"2026-01-15T17:31:48.215390558-08:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-01-15T17:31:48.454560513-08:00","level":"INFO","msg":"handler: closed","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:31:48.454643079-08:00","level":"INFO","msg":"sender: closed","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:31:48.45463807-08:00","level":"INFO","msg":"writer: Close: closed","stream_id":"wzvhvhrm"}
+{"time":"2026-01-15T17:31:48.454803166-08:00","level":"ERROR","msg":"writer: startStore: error closing store: store: failed closing writer: write /home/jennifer/aorl/horizon_reduction/wandb/run-20260115_172945-wzvhvhrm/run-wzvhvhrm.wandb: no space left on device"}
+{"time":"2026-01-15T17:31:48.455671692-08:00","level":"INFO","msg":"stream: closed","id":"wzvhvhrm"}

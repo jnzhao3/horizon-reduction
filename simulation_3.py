@@ -13,7 +13,21 @@ from wrappers.datafuncs_utils import make_env_and_datasets
 from env_wrappers import MazeEnvWrapper
 import jax
 from tqdm import tqdm
+import pickle
 ##============ END IMPORTS ==========##
+
+##=========== ARGUMENTS ===========##
+parser = argparse.ArgumentParser()
+parser.add_argument('--task_start', type=str, help='description for option1')
+parser.add_argument('--task_end', type=str, help='description for option2')
+parser.add_argument('--waypoint', type=str, help='description for option3')
+parser.add_argument('--collection_steps', type=int, default=1000000, help='number of additional data collection steps to take')
+parser.add_argument('--action_noise', type=float, default=0)
+parser.add_argument('--train_steps', type=int, default=1000000)
+parser.add_argument('--eval_interval', type=int, default=100000)
+parser.add_argument('--debug', action='store_true')
+parser.add_argument('--num_eval_episodes', type=int, default=5)
+##=========== END ARGUMENTS ===========##
 
 ##=========== CONSTANTS ===========##
 NAME = 'simulation_3'
@@ -31,6 +45,11 @@ def main(args):
     task_start = eval(args.task_start)
     task_end = eval(args.task_end)
     waypoint = eval(args.waypoint)
+
+    ID_NAME = f"{NAME}_{task_start}_{task_end}_{waypoint}"
+    DIR = f'../../scratch/{NAME}/{ID_NAME}'
+    print(DIR)
+    os.makedirs(DIR, exist_ok=True)
     
     ##=========== SET-UP ===========##
     api = wandb.Api()
@@ -57,7 +76,6 @@ def main(args):
 
     env = MazeEnvWrapper(env)
     all_cells = env.all_cells
-    import ipdb; ipdb.set_trace()
     ##=========== END SET-UP ===========##
 
     ##=========== WANDB SET-UP ===========##
@@ -65,48 +83,59 @@ def main(args):
         run = wandb.init(
             project=PROJECT_NAME,
             entity=ENTITY,              # or your username / team name
-            name=f"{NAME}_{task_start}_{task_end}_{waypoint}",    # optional run name
+            name=ID_NAME,    # optional run name
             group=NAME,
             config=dict(
                 task_start=task_start, task_end=task_end, waypoint=waypoint, collection_steps=args.collection_steps, action_noise=args.action_noise, train_steps=args.train_steps, eval_interval=args.eval_interval
             ),
             mode="online",            # or "offline" if no internet
+            resume="never"
         )
 
     ##=========== CREATE REPLAY BUFFER ===========##
     original_size = train_dataset.size
     rbsize = original_size + args.collection_steps
-    import ipdb; ipdb.set_trace()
 
     train_dataset = ReplayBuffer.create_from_initial_dataset(dict(train_dataset.dataset), rbsize)
     train_dataset.size = rbsize
-    import ipdb; ipdb.set_trace() # CHECK POINTER, SIZE
     ##=========== END CREATE REPLAY BUFFER===========##
 
     ##=========== COLLECT DATA ===========##
     # TODO: calculate waypoint separately
-    import pickle
     with open('cells.pkl', 'rb') as f:
         potential_goals = pickle.load(f)
 
-    start_ij = env.unwrapped.xy_to_ij(waypoint)
-    goal_xy = np.random.choice(potential_goals)
-    goal_ij = env.unwrapped.xy_to_ij(goal_xy)
-    import ipdb; ipdb.set_trace()
-    ob, _ = env.reset(options=dict(
-            task_info=dict(
-                init_ij=start_ij,
-                goal_ij=goal_ij
-            )
-        )
-    )
-    done = False
+    start_ij = env.unwrapped.xy_to_ij(waypoint) # IMPORTANT: this is waypoint, not task_start
+    # goal_xy = potential_goals[np.random.choice(range(len(potential_goals)))]
+    # goal_ij = env.unwrapped.xy_to_ij(goal_xy)
+    # ob, _ = env.reset(options=dict(
+    #         task_info=dict(
+    #             init_ij=start_ij,
+    #             goal_ij=goal_ij
+    #         )
+    #     )
+    # )
+    # done = False
+    done = True; terminated = False; truncated = False
     counter = 0
     rng = jax.random.PRNGKey(seed)
     print(f'Collection {args.collection_steps} transitions now!')
 
-    with tqdm.tqdm(total=args.collection_steps) as pbar:
+    with tqdm(total=args.collection_steps) as pbar:
         while counter < args.collection_steps:
+
+            if done:
+                print(f'terminated: {terminated}, truncated: {truncated}')
+                goal_xy = potential_goals[np.random.choice(range(len(potential_goals)))]
+                goal_ij = env.unwrapped.xy_to_ij(goal_xy)
+                ob, _ = env.reset(options=dict(
+                        task_info=dict(
+                            init_ij=start_ij,
+                            goal_ij=goal_ij
+                        )
+                    )
+                )
+                done = False
             
             curr_rng, rng = jax.random.split(rng)
             action = agent.sample_actions(
@@ -121,6 +150,10 @@ def main(args):
             next_ob, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
+            # make sure the last transition is terminal!
+            if counter == (args.collection_steps - 1):
+                done = True
+
             tran = dict(
                 observations=ob,
                 actions=action,
@@ -130,27 +163,15 @@ def main(args):
                 qvel=info['qvel'],
             )
 
-            import ipdb; ipdb.set_trace()
             tran['oracle_reps'] = ob[:2]
 
-            import ipdb; ipdb.set_trace()
             train_dataset.add_transition(tran)
             counter += 1; pbar.update(1)
 
-            if done:
-                goal_xy = np.random.choice(potential_goals)
-                goal_ij = env.unwrapped.xy_to_ij(goal_xy)
-                ob, _ = env.reset(options=dict(
-                        task_info=dict(
-                            init_ij=start_ij,
-                            goal_ij=goal_ij
-                        )
-                    )
-                )
-                done = False
-
     ##=========== TRAIN ===========##
     print('training now!')
+
+    train_dataset = GCDataset(Dataset.create(**train_dataset), config)
 
     env.task_infos = [{
                 'task_name': f'{task_start} to {task_end}',
@@ -160,42 +181,58 @@ def main(args):
                 'goal_xy': task_end
             }]
     
-    for step in tqdm(args.train_steps):
+    for step in tqdm(range(1, args.train_steps + 1)):
 
         batch = train_dataset.sample(batch_size)
-
-        import ipdb; ipdb.set_trace()
         agent, update_info = agent.update(batch)
         
         ##=========== EVALUATION ===========##
         if step % args.eval_interval == 0:
-            eval_metrics, all_trajs = env.evaluate_step(agent=agent, config=config, eval_episodes=5, return_trajs=True)
+            eval_metrics, all_trajs = env.evaluate_step(agent=agent, config=config, eval_episodes=args.num_eval_episodes, return_trajs=True)
+            with open(f'{DIR}/all_trajs-{step}.pkl', 'wb') as f:
+                pickle.dump(all_trajs, f)
 
             ##=========== LOG AND PLOT WANDB ===========##
             if not args.debug:
                 wandb.log(eval_metrics, step=step)
 
-            import ipdb; ipdb.set_trace()
-
     ##=========== SAVE DATA AND CHECKPOINTS ===========##
-    os.makedirs(f'~/scratch/{NAME}', exist_ok=True)
-    save_agent(agent, f'~/scratch/{NAME}/{run.name}', step)
-    np.savez(os.path.join(f'~/scratch/{NAME}', f'data-{step}.npz'), **train_dataset.dataset)
+    save_agent(agent, DIR, step)
+    np.savez(os.path.join(DIR, f'data-{step}.npz'), **train_dataset.dataset)
+    ##=========== END SAVE DATA AND CHECKPOINTS ===========##
+
+    ##=========== PLOT THINGS ===========##
+    all_cells = env.all_cells
+    fig_name = f'{DIR}/plot.png'
+    plt.figure(figsize=(6, 6))
+    plt.scatter(x=all_cells[:, 0], y=all_cells[:, 1], s=10, c='gray')
+    plt.scatter(x=[task_start[0]], y=[task_start[1]], s=50, c='red')
+    plt.scatter(x=[task_end[0]], y=[task_end[1]], s=50, c='green')
+    plt.scatter(x=[waypoint[0]], y=[waypoint[1]], s=50, c='blue', marker='*')
+    plt.savefig(fig_name)
+    if not args.debug:
+        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=step)
+        os.remove(fig_name)
+
+    fig_name = f'{DIR}/collected_data.png'
+    plt.figure(figsize=(6, 6))
+    plt.scatter(x=all_cells[:, 0], y=all_cells[:, 1], s=10, c='gray')
+
+    new_data = train_dataset.dataset['observations'][original_size :, :2]
+    plt.scatter(x=new_data[:, 0], y=new_data[:, 1], s=10, c='orange', alpha=0.002)
+    plt.scatter(x=[task_start[0]], y=[task_start[1]], s=50, c='red')
+    plt.scatter(x=[task_end[0]], y=[task_end[1]], s=50, c='green')
+    plt.scatter(x=[waypoint[0]], y=[waypoint[1]], s=50, c='blue', marker='*')
+    plt.savefig(fig_name)
+    if not args.debug:
+        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=step)
+        os.remove(fig_name)
+    ##=========== END PLOT THINGS ===========##
+
 
     if not args.debug:
         run.finish()
 
 if __name__ == '__main__':
-    ##=========== ARGUMENTS ===========##
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--task_start', type=str, help='description for option1')
-    parser.add_argument('--task_end', type=str, help='description for option2')
-    parser.add_argument('--waypoint', type=str, help='description for option3')
-    parser.add_argument('--collection_steps', type=int, default=1000000, help='number of additional data collection steps to take')
-    parser.add_argument('--action_noise', type=float, default=0)
-    parser.add_argument('--train_steps', type=int, default=1000000)
-    parser.add_argument('--eval_interval', type=int, default=100000)
-    parser.add_argument('--debug', action='store_true')
-    ##=========== END ARGUMENTS ===========##
     args = parser.parse_args()
     main(args)

@@ -112,6 +112,11 @@ declare -a commands=(
 
 cd {path}
 
+cmd_slice=("${{commands[@]:$COM_ID_S:$PARALLEL_N}}")
+echo "LAUNCHED_COMMANDS_BEGIN"
+printf '%s\\n' "${{cmd_slice[@]}}"
+echo "LAUNCHED_COMMANDS_END"
+
 parallel --delay 20 --linebuffer -j {args.j} {{1}} ::: \"${{commands[@]:$COM_ID_S:$PARALLEL_N}}\"
 """
 

@@ -1,0 +1,28 @@
+Collection 100 transitions now!
+100%|█████████████████████████| 100/100 [00:03<00:00, 26.42it/s]
+terminated: False, truncated: False
+training now!
+100%|█████████████████████████████| 5/5 [00:24<00:00,  4.93s/it]
+100%|█████████████████████████████| 1/1 [00:24<00:00, 24.66s/it]
+100%|█████████████████████████████| 5/5 [00:21<00:00,  4.21s/it]
+100%|█████████████████████████████| 1/1 [00:21<00:00, 21.03s/it]
+100%|█████████████████████████████| 5/5 [00:24<00:00,  4.95s/it]
+100%|█████████████████████████████| 1/1 [00:24<00:00, 24.73s/it]
+100%|█████████████████████████████| 5/5 [00:23<00:00,  4.70s/it]
+100%|█████████████████████████████| 1/1 [00:23<00:00, 23.49s/it]
+100%|█████████████████████████| 100/100 [01:55<00:00,  1.15s/it]
+Saved to ~/scratch/simulation_3/simulation_3_(0.0, 0, 0)_(15.0, 20.0)_(1.0, 2.0)/params_100.pkl
+Traceback (most recent call last):
+  File "/home/jennifer/aorl/horizon_reduction/simulation_3.py", line 237, in <module>
+    main(args)
+  File "/home/jennifer/aorl/horizon_reduction/simulation_3.py", line 200, in main
+    np.savez(os.path.join(DIR, f'data-{step}.npz'), **train_dataset.dataset)
+  File "/home/jennifer/miniconda3/envs/aorl/lib/python3.10/site-packages/numpy/lib/npyio.py", line 639, in savez
+    _savez(file, args, kwds, False)
+  File "/home/jennifer/miniconda3/envs/aorl/lib/python3.10/site-packages/numpy/lib/npyio.py", line 743, in _savez
+    format.write_array(fid, val,
+  File "/home/jennifer/miniconda3/envs/aorl/lib/python3.10/site-packages/numpy/lib/format.py", line 735, in write_array
+    fp.write(chunk.tobytes('C'))
+  File "/home/jennifer/miniconda3/envs/aorl/lib/python3.10/zipfile.py", line 1144, in write
+    self._fileobj.write(data)
+OSError: [Errno 28] No space left on device

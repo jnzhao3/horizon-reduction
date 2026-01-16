@@ -214,7 +214,7 @@ def main(args):
                 'goal_xy': task_end
             }]
     
-    for step in tqdm(range(1, args.train_steps + 1)):
+    for step in tqdm(range(args.train_steps)):
 
         batch = train_dataset.sample(batch_size)
         agent, update_info = agent.update(batch)

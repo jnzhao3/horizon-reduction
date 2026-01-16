@@ -47,6 +47,8 @@ def main(args):
     waypoint = eval(args.waypoint)
 
     ID_NAME = f"{NAME}_{task_start}_{task_end}_{waypoint}"
+    ID_NAME = ID_NAME.replace('(', '')
+    ID_NAME = ID_NAME.replace(')', '')
     DIR = f'../../scratch/{NAME}/{ID_NAME}'
     print(DIR)
     os.makedirs(DIR, exist_ok=True)
@@ -91,6 +93,7 @@ def main(args):
             mode="online",            # or "offline" if no internet
             resume="never"
         )
+        wandb.run.alert(title=f"{ID_NAME} run started!", text=f"{ID_NAME}\n\n{'python ' + ' '.join(sys.argv)}\n\n{run.id}")
 
     ##=========== CREATE REPLAY BUFFER ===========##
     original_size = train_dataset.size

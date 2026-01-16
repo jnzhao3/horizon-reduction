@@ -2571,3 +2571,18 @@ simulation_3_1 = {
         "eval_interval": 50
     }
 }
+
+simulation_3_2 = {
+    # debugging run
+    "script": "simulation_3.py",
+    "priority": "high", # high, normal, low, lowest
+    "time": "10:00:00",
+    "config": {
+        "task_start": "\"(0.0, 0.0)\"",
+        "task_end": "\"(15.0, 20.0)\"",
+        "waypoint": ("\"(1.0, 2.0)\"", "\"(18.0, 16.0)\"", "\"(4.0, 9.0)\"", "\"(16.0, 19.0)\"", "\"(10.0, 11.0)\""),
+        # "collection_steps": 100,
+        # "train_steps": 100,
+        # "eval_interval": 50
+    }
+}

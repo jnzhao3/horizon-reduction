@@ -24,7 +24,7 @@ micromamba activate aorl
 export PYTHONPATH="../:${PYTHONPATH}"
 
 declare -a commands=(
- [1]='python3 simulation_3.py --task_start '(0.0, 0.0)' --task_end '(15.0, 20.0)' --waypoint '(1.0, 2.0)' --collection_steps 100 --train_steps 100 --eval_interval 50'
+ [1]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(1.0, 2.0)" --collection_steps 100 --train_steps 100 --eval_interval 50'
 )
 
 cd /home/jennifer/aorl/horizon_reduction

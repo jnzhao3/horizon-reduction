@@ -24,7 +24,7 @@ parser.add_argument('--waypoint', type=str, help='description for option3')
 parser.add_argument('--collection_steps', type=int, default=1000000, help='number of additional data collection steps to take')
 parser.add_argument('--action_noise', type=float, default=0)
 parser.add_argument('--train_steps', type=int, default=1000000)
-parser.add_argument('--eval_interval', type=int, default=100000)
+parser.add_argument('--eval_interval', type=int, default=10000)
 parser.add_argument('--debug', action='store_true')
 parser.add_argument('--num_eval_episodes', type=int, default=5)
 ##=========== END ARGUMENTS ===========##

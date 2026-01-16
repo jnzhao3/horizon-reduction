@@ -188,7 +188,7 @@ def main(args):
     plt.scatter(x=[waypoint[0]], y=[waypoint[1]], s=50, c='blue', marker='*')
     plt.savefig(fig_name)
     if not args.debug:
-        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=step)
+        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=counter)
         os.remove(fig_name)
 
     fig_name = f'{DIR}/collected_data.png'
@@ -202,7 +202,7 @@ def main(args):
     plt.scatter(x=[waypoint[0]], y=[waypoint[1]], s=50, c='blue', marker='*')
     plt.savefig(fig_name)
     if not args.debug:
-        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=step)
+        wandb.log({"data_collection/plot": wandb.Image(fig_name)}, step=counter)
         os.remove(fig_name)
     ##=========== END PLOT THINGS ===========##
 

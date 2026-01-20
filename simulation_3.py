@@ -101,7 +101,6 @@ def main(args):
             run.config.update({
                 'job': os.environ["SLURM_JOB_ID"],
             }, allow_val_change=True)
-            run.update()
 
     ##=========== CREATE REPLAY BUFFER ===========##
     original_size = train_dataset.size

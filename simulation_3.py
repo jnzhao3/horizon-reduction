@@ -51,7 +51,7 @@ def main(args):
     ID_NAME = ID_NAME.replace('(', '')
     ID_NAME = ID_NAME.replace(')', '')
     DIR = f'../../scratch/{NAME}/{ID_NAME}'
-    print(DIR)
+    print(DIR, file=sys.stderr)
     os.makedirs(DIR, exist_ok=True)
     
     ##=========== SET-UP ===========##
@@ -97,12 +97,7 @@ def main(args):
         wandb.run.alert(title=f"{ID_NAME} run started!", text=f"{ID_NAME}\n\n{'python ' + ' '.join(sys.argv)}\n\n{run.id}")
 
         if "SLURM_JOB_ID" in os.environ:
-            print(os.environ["SLURM_JOB_ID"]) # for debugging purposes, check that this is the correct value
-            print(os.environ['SLURM_PROC_ID'])
-            print(os.environ['SLURM_ARRAY_JOB_ID'])
-            print(os.environ['SLURM_ARRAY_TASK_ID'])
-            print(args.experiment)
-
+            print(os.environ["SLURM_JOB_ID"], file=sys.stderr) # for debugging purposes, check that this is the correct value
             run.config.update({
                 'job': os.environ["SLURM_JOB_ID"],
             }, allow_val_change=True)
@@ -135,13 +130,13 @@ def main(args):
     done = True; terminated = False; truncated = False
     counter = 0
     rng = jax.random.PRNGKey(seed)
-    print(f'Collection {args.collection_steps} transitions now!')
+    print(f'Collection {args.collection_steps} transitions now!', file=sys.stderr)
 
     with tqdm(total=args.collection_steps) as pbar:
         while counter < args.collection_steps:
 
             if done:
-                print(f'terminated: {terminated}, truncated: {truncated}')
+                print(f'terminated: {terminated}, truncated: {truncated}', file=sys.stderr)
                 goal_xy = potential_goals[np.random.choice(range(len(potential_goals)))]
                 goal_ij = env.unwrapped.xy_to_ij(goal_xy)
                 ob, _ = env.reset(options=dict(
@@ -186,7 +181,7 @@ def main(args):
             ob = next_ob
 
     ##=========== TRAIN ===========##
-    print('training now!')
+    print('training now!', file=sys.stderr)
 
     train_dataset = GCDataset(Dataset.create(**train_dataset), config)
 

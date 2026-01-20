@@ -27,6 +27,7 @@ parser.add_argument('--train_steps', type=int, default=1000000)
 parser.add_argument('--eval_interval', type=int, default=10000)
 parser.add_argument('--debug', action='store_true')
 parser.add_argument('--num_eval_episodes', type=int, default=5)
+parser.add_argument('--experiment', type=str, default='')
 ##=========== END ARGUMENTS ===========##
 
 ##=========== CONSTANTS ===========##
@@ -88,12 +89,24 @@ def main(args):
             name=ID_NAME,    # optional run name
             group=NAME,
             config=dict(
-                task_start=task_start, task_end=task_end, waypoint=waypoint, collection_steps=args.collection_steps, action_noise=args.action_noise, train_steps=args.train_steps, eval_interval=args.eval_interval
+                task_start=task_start, task_end=task_end, waypoint=waypoint, collection_steps=args.collection_steps, action_noise=args.action_noise, train_steps=args.train_steps, eval_interval=args.eval_interval, experiment=args.experiment
             ),
             mode="online",            # or "offline" if no internet
             resume="never"
         )
         wandb.run.alert(title=f"{ID_NAME} run started!", text=f"{ID_NAME}\n\n{'python ' + ' '.join(sys.argv)}\n\n{run.id}")
+
+        if "SLURM_JOB_ID" in os.environ:
+            print(os.environ["SLURM_JOB_ID"]) # for debugging purposes, check that this is the correct value
+            print(os.environ['SLURM_PROC_ID'])
+            print(os.environ['SLURM_ARRAY_JOB_ID'])
+            print(os.environ['SLURM_ARRAY_TASK_ID'])
+            print(args.experiment)
+
+            run.config.update({
+                'job': os.environ["SLURM_JOB_ID"],
+            }, allow_val_change=True)
+            run.update()
 
     ##=========== CREATE REPLAY BUFFER ===========##
     original_size = train_dataset.size
@@ -170,6 +183,7 @@ def main(args):
 
             train_dataset.add_transition(tran)
             counter += 1; pbar.update(1)
+            ob = next_ob
 
     ##=========== TRAIN ===========##
     print('training now!')
@@ -229,7 +243,7 @@ def main(args):
 
             ##=========== LOG AND PLOT WANDB ===========##
             if not args.debug:
-                wandb.log(eval_metrics, step=step)
+                wandb.log(eval_metrics, step=counter + step) # to prevent overriding previous logs
 
     ##=========== END SAVE DATA AND CHECKPOINTS ===========##
 

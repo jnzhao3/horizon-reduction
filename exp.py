@@ -2573,7 +2573,6 @@ simulation_3_1 = {
 }
 
 simulation_3_2 = {
-    # debugging run
     "script": "simulation_3.py",
     "priority": "high", # high, normal, low, lowest
     "time": "10:00:00",
@@ -2618,5 +2617,21 @@ simulation_3_4 = {
         "collection_steps": 100,
         "train_steps": 100,
         "eval_interval": 50
+    }
+}
+
+simulation_3_5 = {
+    "script": "simulation_3.py",
+    "priority": "high",
+    "time": "10:00:00",
+    "config": {
+        "experiment": "simulation_3_5",
+        # task_start = (0.0, 10.0)
+        # task_end = (15.0, 0.0)
+        # ('"\\"(10.0, 6.0)"\\"',
+        # '"\\"(10.0, 5.0)"\\"',
+        # '"\\"(13.0, 3.0)"\\"',
+        # '"\\"(2.0, 9.0)"\\"',
+        # '"\\"(14.0, 1.0)"\\"')
     }
 }

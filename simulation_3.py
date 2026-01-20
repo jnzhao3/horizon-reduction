@@ -101,6 +101,12 @@ def main(args):
             run.config.update({
                 'job': os.environ["SLURM_JOB_ID"],
             }, allow_val_change=True)
+        if 'SLURM_PROC_ID' in os.environ:
+            print('SLURM_PROC_ID', os.environ['SLURM_PROC_ID'])
+        if 'SLURM_ARRAY_JOB_ID' in os.environ:
+            print('SLURM_ARRAY_JOB_ID', os.environ['SLURM_ARRAY_JOB_ID'])
+        if 'SLURM_ARRAY_TASK_ID' in os.environ:
+            print('SLURM_ARRAY_TASK_ID', os.environ['SLURM_ARRAY_TASK_ID'])
 
     ##=========== CREATE REPLAY BUFFER ===========##
     original_size = train_dataset.size

@@ -24,11 +24,11 @@ micromamba activate aorl
 export PYTHONPATH="../:${PYTHONPATH}"
 
 declare -a commands=(
- [1]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(1.0, 2.0)"'
- [2]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(18.0, 16.0)"'
- [3]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(4.0, 9.0)"'
- [4]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(16.0, 19.0)"'
- [5]='python3 simulation_3.py --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(10.0, 11.0)"'
+ [1]='python3 simulation_3.py --simulation_3_2 simulation_3_2 --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(1.0, 2.0)"'
+ [2]='python3 simulation_3.py --simulation_3_2 simulation_3_2 --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(18.0, 16.0)"'
+ [3]='python3 simulation_3.py --simulation_3_2 simulation_3_2 --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(4.0, 9.0)"'
+ [4]='python3 simulation_3.py --simulation_3_2 simulation_3_2 --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(16.0, 19.0)"'
+ [5]='python3 simulation_3.py --simulation_3_2 simulation_3_2 --task_start "(0.0, 0.0)" --task_end "(15.0, 20.0)" --waypoint "(10.0, 11.0)"'
 )
 
 cd /home/jennifer/aorl/horizon_reduction

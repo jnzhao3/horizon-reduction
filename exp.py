@@ -2577,6 +2577,7 @@ simulation_3_2 = {
     "priority": "high", # high, normal, low, lowest
     "time": "10:00:00",
     "config": {
+        "simulation_3_2": "simulation_3_2",
         "task_start": "\"(0.0, 0.0)\"",
         "task_end": "\"(15.0, 20.0)\"",
         "waypoint": ("\"(1.0, 2.0)\"", "\"(18.0, 16.0)\"", "\"(4.0, 9.0)\"", "\"(16.0, 19.0)\"", "\"(10.0, 11.0)\""),
@@ -2592,6 +2593,7 @@ simulation_3_3 = {
     "priority": "high", # high, normal, low, lowest
     "time": "10:00:00",
     "config": {
+        "experiment": "simulation_3_3",
         "task_start": "\"(0.0, 20.0)\"",
         "task_end": "\"(20.0, 0.0)\"",
         "waypoint": ("\"(4.0, 9.0)\"",

@@ -2639,3 +2639,21 @@ simulation_3_5 = {
         )
     }
 }
+
+simulation_3_6 = {
+    "script": "simulation_3.py",
+    "priority": "high",
+    "time": "10:00:00",
+    "config": {
+        "experiment": "simulation_3_6",
+        "task_start": "\"(0.0, 10.0)\"",
+        "task_end": "\"(15.0, 0.0)\"",
+        "waypoint": (
+            "\"(4.0, 9.0)\"",
+            "\"(7.0, 8.0)\"",
+            "\"(12.0, 8.0)\"",
+            "\"(12.0, 4.0)\"",
+            "\"(14.0, 4.0)\""
+        )
+    }
+}

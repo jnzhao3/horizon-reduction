@@ -96,6 +96,7 @@ def main(args):
         )
         wandb.run.alert(title=f"{ID_NAME} run started!", text=f"{ID_NAME}\n\n{'python ' + ' '.join(sys.argv)}\n\n{run.id}")
 
+        # IMPORTANT:
         if "SLURM_JOB_ID" in os.environ:
             print(os.environ["SLURM_JOB_ID"], file=sys.stderr) # for debugging purposes, check that this is the correct value
             run.config.update({

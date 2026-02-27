@@ -31,7 +31,7 @@ class RNDSubgoals:
             )
         )
 
-        if type(train_dataset) == GCDataset:
+        if isinstance(train_dataset, GCDataset):
             train_dataset = train_dataset.dataset
 
         observation_example = train_dataset['oracle_reps'][0]
@@ -68,12 +68,13 @@ class RNDSubgoals:
         # else:
         return self, {}
 
-    def get_goal(self, observations, rng):
-        subset = np.random.choice(self.potential_goals.shape[0], size=min(1000, self.potential_goals.shape[0]), replace=False)
-        subset_goals = self.potential_goals[subset]
+    def get_goal(self, observations, rng, k=1000): # TODO: tune k
+        idx = jax.random.choice(rng, self.potential_goals.shape[0], shape=(k,), replace=False)
+        subset_goals = self.potential_goals[np.array(idx)]
         rewards, rnd_stats = self.rnd.get_reward(observations=subset_goals, actions=None, stats=True)
         # TODO: make this random sample then select, to add noise
-        goal_xy = self.potential_goals[jnp.argmax(rewards)]
+        # goal_xy = self.potential_goals[jnp.argmax(rewards)]
+        goal_xy = subset_goals[int(jnp.argmax(rewards))]
 
         subgoal = self.agent.propose_goals(observations=observations[None], goals=goal_xy[None], rng=rng)
         return subgoal[0], rnd_stats
@@ -86,11 +87,16 @@ class RNDSubgoals:
         return actions, action_info
     
     def post(self, transition, **kwargs):
-        rnd, rnd_info = self.rnd.update(batch={
-            'observations': transition['oracle_reps'],
-            'actions': None,
-        })
-        post_info = rnd_info
+        # rnd, rnd_info = self.rnd.update(batch={
+        #     'observations': transition['oracle_reps'],
+        #     'actions': None,
+        # })
+        # post_info = rnd_info
+
+        obs = transition['oracle_reps']
+        if obs.ndim == 1:
+            obs = obs[None, :]
+        rnd, post_info = self.rnd.update(batch={'observations': obs, 'actions': None})
 
         if transition['terminals'] == 1.0:
             curr_goal, rnd_stats = self.get_goal(observations=transition['observations'], rng=kwargs['rng'])

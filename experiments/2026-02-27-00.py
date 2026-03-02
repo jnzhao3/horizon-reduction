@@ -40,7 +40,7 @@ for debug in [True, False]:
         gen = LocalScriptGenerator(prefix=("MUJOCO_GL=egl", "python e2e.py"))
     else:
         # gen = SbatchGenerator(prefix=("MUJOCO_GL=egl", "python e2e.py"))
-        gen = SbatchGenerator(j=args.num_jobs_per_gpu, limit=args.gpu_limit, prefix=("MUJOCO_GL=egl", "python e2e.py"), comment=run_group)
+        gen = SbatchGenerator(j=args.num_jobs_per_gpu, limit=args.gpu_limit, prefix=("MUJOCO_GL=egl", "python e2e.py"), comment=run_group, priority='high')
     if debug:
         gen.add_common_prefix({
             "run_group": run_group + "_debug",

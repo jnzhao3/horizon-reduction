@@ -563,9 +563,7 @@ def main(_):
 
             if FLAGS.offline_steps + FLAGS.collection_steps <= global_step:
 
-                import ipdb; ipdb.set_trace()
-
-                assert train_dataset['terminals'][train_dataset.size - 1] > 0.0
+                assert train_dataset.dataset['terminals'][train_dataset.size - 1] > 0.0
 
                 if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
                     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))

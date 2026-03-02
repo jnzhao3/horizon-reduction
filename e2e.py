@@ -47,6 +47,7 @@ flags.DEFINE_integer('restore_epoch', None, 'Restore epoch.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 1000000, 'Number of offline steps.')
+flags.DEFINE_integer('second_offline_steps', 1000000, 'Number of offline steps for the second round of training') # TODO: eventually, delete this
 flags.DEFINE_integer('log_interval', 1000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 10000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 100000, 'Saving interval.')
@@ -286,7 +287,8 @@ def main(_):
             text=f"{exp_name}\n\n{'python ' + ' '.join(sys.argv)}\n\n{info}",
         )
 
-    total_steps = 2 * FLAGS.offline_steps + FLAGS.collection_steps
+    # total_steps = 2 * FLAGS.offline_steps + FLAGS.collection_steps
+    total_steps = FLAGS.offline_steps + FLAGS.collection_steps + FLAGS.second_offline_steps
     dataset_class_dict = {
         'GCDataset': GCDataset,
         'HGCDataset': HGCDataset,
@@ -301,7 +303,7 @@ def main(_):
         global_step = int(global_step_file.read_text().strip())
         print(f'Restoring from epoch {global_step}')
 
-        random.seed(FLAGS.seed)
+        random.seed(0)
         np.random.seed(FLAGS.seed)
 
         dataset_path = pathlib.Path(FLAGS.save_dir) / f'data-{global_step}.npz'
@@ -313,7 +315,7 @@ def main(_):
         train_dataset_data = _load_npz_dict(dataset_path)
         val_dataset_data = _load_npz_dict(pathlib.Path(FLAGS.save_dir) / f'data-{global_step}-val.npz')
 
-        random.seed(FLAGS.seed)
+        random.seed(0)
         np.random.seed(FLAGS.seed)
 
         print(f'Evaluating on {len(env.task_infos)} tasks with start_ij {env.start_ij}')
@@ -351,7 +353,7 @@ def main(_):
 
         train_dataset_data = clip_dataset(train_dataset_data, int(FLAGS.train_data_size))
 
-        random.seed(FLAGS.seed)
+        random.seed(0)
         np.random.seed(FLAGS.seed)
         print(f'Evaluating on {len(env.task_infos)} tasks with start_ij {env.start_ij}')
 
@@ -386,7 +388,7 @@ def main(_):
                             'marker': random.choice(['*', 'X', 'P', 'D', 'v']),
                         }
                     fig_name = plot_data(task_info_to_plot, save_dir=FLAGS.save_dir)
-                    wandb.log({'data_collection/task_info_viz': wandb.Image(fig_name)})
+                    wandb.log({'data_collection/task_info_viz': wandb.Image(fig_name)}, step=global_step)
                     print(f'Plotted task info to {fig_name}')
                     os.remove(fig_name)
 
@@ -562,7 +564,7 @@ def main(_):
                     eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval_further.csv'))
                     first_time = time.time()
                     last_time = time.time()
-                    print(f'Beginning further training for {FLAGS.offline_steps} steps', file=sys.stderr)
+                    print(f'Beginning further training for {FLAGS.second_offline_steps} steps', file=sys.stderr)
 
                 agent, global_step, last_time = _train_step(
                     agent=agent,
@@ -590,7 +592,7 @@ def main(_):
             train_dataset_size = _get_train_dataset_size(train_dataset)
             if train_dataset_size is not None:
                 run_metrics['data/train_dataset_size'] = train_dataset_size
-            wandb.log(run_metrics)
+            wandb.log(run_metrics, step=global_step)
 
 
 if __name__ == '__main__':

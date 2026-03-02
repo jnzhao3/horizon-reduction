@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=qwq
+#SBATCH --job-name=aorl
 #SBATCH --open-mode=append
 #SBATCH -o /global/scratch/users/jenniferzhao/logs/%A_%a.out
 #SBATCH -e /global/scratch/users/jenniferzhao/logs/%A_%a.err
@@ -21,7 +21,7 @@ JOB_N=6
 COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
 # module load gnu-parallel
 source ~/.bashrc
-micromamba activate qwq
+micromamba activate aorl
 export PYTHONPATH="../:${PYTHONPATH}"
 
 

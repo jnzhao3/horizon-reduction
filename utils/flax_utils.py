@@ -9,11 +9,12 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
+import numpy as np
 
 nonpytree_field = functools.partial(flax.struct.field, pytree_node=False)
 
 
-class ModuleDict(nn.Module):
+class  ModuleDict(nn.Module):
     """A dictionary of modules.
 
     This allows sharing parameters between modules and provides a convenient way to access them.
@@ -200,3 +201,26 @@ def restore_agent(agent, restore_path, restore_epoch):
     print(f'Restored from {restore_path}')
 
     return agent
+
+def restore_rb(restore_path, restore_epoch):
+    """Restore the agent from a file.
+
+    Args:
+        agent: Agent.
+        restore_path: Path to the directory containing the saved agent.
+        restore_epoch: Epoch number.
+    """
+    candidates = glob.glob(restore_path)
+
+    assert len(candidates) == 1, f'Found {len(candidates)} candidates: {candidates}'
+
+    restore_path = candidates[0] + f'/data-{restore_epoch}.npz'
+
+    with open(restore_path, 'rb') as f:
+        # load_dict = pickle.load(f)
+        load_dict = np.load(f)
+        print(f'Restored from {restore_path}')
+
+        # agent = flax.serialization.from_state_dict(agent, load_dict['agent'])
+        return {k: load_dict[k] for k in load_dict.files}
+    

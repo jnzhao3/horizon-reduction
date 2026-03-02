@@ -16,7 +16,7 @@ from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
-from env_wrappers import MazeEnvWrapper
+from wrappers.env_wrappers import MazeEnvWrapper
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
@@ -476,6 +476,8 @@ def main(_):
                     }
 
                     stats = statistics[FLAGS.env_name](env=data_collection_env)
+
+                    print()
                 else:
                     collection_agent, pre_info = collection_agent.pre(observations=ob, rng=rng)
                     _log_prefixed_info(pre_info, 'data_collection/pre', global_step)
@@ -555,10 +557,16 @@ def main(_):
                     )
 
                 if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
+                    train_dataset['terminals'][train_dataset.size - 1] = 1.0
                     train_dataset = dataset_class(Dataset.create(**train_dataset), config)
                     print(f'new replay buffer size: {train_dataset.size}')
 
             if FLAGS.offline_steps + FLAGS.collection_steps <= global_step:
+
+                import ipdb; ipdb.set_trace()
+
+                assert train_dataset['terminals'][train_dataset.size - 1] > 0.0
+
                 if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
                     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))
                     eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval_further.csv'))

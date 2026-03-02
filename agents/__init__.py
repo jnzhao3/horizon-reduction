@@ -8,6 +8,9 @@ from agents.hgcfbc import HGCFBCAgent
 from agents.hiql import HIQLAgent
 from agents.ngcsacbc import NGCSACBCAgent
 from agents.sharsa import SHARSAAgent
+from agents.cfgrl import CFGRLAgent
+from agents.fql import FQLAgent
+from agents.rnd import RND
 
 agents = dict(
     crl=CRLAgent,
@@ -20,4 +23,7 @@ agents = dict(
     hiql=HIQLAgent,
     ngcsacbc=NGCSACBCAgent,
     sharsa=SHARSAAgent,
+    cfgrl=CFGRLAgent,
+    fql=FQLAgent,
+    rnd=RND
 )

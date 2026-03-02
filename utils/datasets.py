@@ -2,6 +2,8 @@ import dataclasses
 from typing import Any
 
 import jax
+import jax.numpy as jnp
+from functools import partial
 import numpy as np
 from flax.core.frozen_dict import FrozenDict
 
@@ -50,6 +52,9 @@ class Dataset(FrozenDict):
             return self.valid_idxs[np.random.randint(len(self.valid_idxs), size=num_idxs)]
         else:
             return np.random.randint(self.size, size=num_idxs)
+        
+    # @jax.jit
+    # def
 
     def sample(self, batch_size: int, idxs=None):
         """Sample a batch of transitions."""
@@ -122,12 +127,77 @@ class ReplayBuffer(Dataset):
 
         jax.tree_util.tree_map(set_idx, self._dict, transition)
         self.pointer = (self.pointer + 1) % self.max_size
-        self.size = max(self.pointer, self.size)
+        # self.size = max(self.pointer, self.size)
+        self.size = min(self.size + 1, self.max_size) # bug fix
+
+    def add_transitions(self, transitions):
+
+        batch_size = jax.tree_util.tree_leaves(transitions)[0].shape[0]
+
+        for i in range(batch_size):
+            idx = (self.pointer + i) % self.max_size
+
+            def set_idx(buffer, new_element):
+                buffer[idx] = new_element
+
+            # Extract i-th transition across the PyTree and write it at buffer[idx]
+            single_transition = jax.tree_util.tree_map(lambda x: x[i], transitions)
+            jax.tree_util.tree_map(set_idx, self._dict, single_transition)
+
+        self.pointer = (self.pointer + batch_size) % self.max_size
+        self.size = min(self.size + batch_size, self.max_size)
+
+    def combine_with(self, second_dataset):
+        # assert type(second_dataset) == type(self)
+        self.max_size += second_dataset.size
+
+        transitions = second_dataset.dataset.unfreeze()
+        batch_size = transitions['observations'].shape[0]
+        transitions = second_dataset.sample(batch_size, idxs=np.arange(batch_size))
+
+        for k, v in self._dict.items():
+            if v.ndim >= 2:
+                self._dict[k] = np.concatenate([v, np.zeros((batch_size, self._dict[k].shape[1]))])
+            else:
+                self._dict[k] = np.concatenate([v, np.zeros((batch_size))])
+
+        for i in range(batch_size):
+            idx = (self.pointer + i) % self.max_size
+
+            def set_idx(buffer, new_element):
+                buffer[idx] = new_element
+
+            single_transition = jax.tree_util.tree_map(lambda x: x[0], transitions)
+            import ipdb; ipdb.set_trace()
+            jax.tree_util.tree_map(set_idx, self._dict, single_transition)
+        # self.add_transitions(transitions)
+
+        self.pointer = (self.pointer + batch_size) % self.max_size
+        self.size = min(self.size + batch_size, self.max_size)
 
     def clear(self):
         """Clear the replay buffer."""
         self.size = self.pointer = 0
+        
+@partial(jax.jit, static_argnames=('valids',))
+def jax_get_random_idxs(batch_size, rng, size, valids=None):
+    """Return `batch_size` random indices."""
+    if valids is not None:
+        key, sub = jax.random.split(key)
+        idx = jax.random.randint(sub, (batch_size,), 0, valids.shape[0])
+        return key, valids[idx]
+    else:
+        key, sub = jax.random.split(key)
+        return key, jax.random.randint(sub, (batch_size,), 0, size)
+    
+@jax.jit
+def jax_sample_batch(dataset, idxs):
+    result = jax.tree_util.tree_map(lambda arr: arr[idxs], dataset)
+    return result
 
+@jax.jit
+def jax_sample_next_observations(observations, size, idxs):
+    return observations[jnp.minimum(idxs + 1, size - 1)]
 
 @dataclasses.dataclass
 class GCDataset:
@@ -162,7 +232,7 @@ class GCDataset:
         # Pre-compute trajectory boundaries.
         (self.terminal_locs,) = np.nonzero(self.dataset['terminals'] > 0)
         self.initial_locs = np.concatenate([[0], self.terminal_locs[:-1] + 1])
-        assert self.terminal_locs[-1] == self.size - 1
+        # assert self.terminal_locs[-1] == self.size - 1
 
         # Assert probabilities sum to 1.
         assert np.isclose(
@@ -188,6 +258,7 @@ class GCDataset:
             idxs = self.dataset.get_random_idxs(batch_size)
 
         batch = self.dataset.sample(batch_size, idxs)
+        final_state_idxs = self.terminal_locs[np.searchsorted(self.terminal_locs, idxs)]
 
         value_goal_idxs = self.sample_goals(
             idxs,
@@ -204,6 +275,12 @@ class GCDataset:
             self.config['actor_geom_sample'],
         )
 
+        actor_subgoal_steps = (
+            self.config['subgoal_steps'] # TODO: check this value
+            # if self.config.get('actor_subgoal_steps') is None
+            # else self.config['actor_subgoal_steps']
+        ) # TODO: i could also remove this and just use HGCDataset
+
         if 'oracle_reps' in self.dataset:
             batch['value_goals'] = self.dataset['oracle_reps'][value_goal_idxs]
             batch['actor_goals'] = self.dataset['oracle_reps'][actor_goal_idxs]
@@ -213,6 +290,13 @@ class GCDataset:
         successes = (idxs == value_goal_idxs).astype(float)
         batch['masks'] = 1.0 - successes
         batch['rewards'] = successes - (1.0 if self.config['gc_negative'] else 0.0)
+
+        low_actor_goal_idxs = np.minimum(idxs + actor_subgoal_steps, final_state_idxs)
+        # batch['low_actor_goals'] = self.get_observations(low_actor_goal_idxs)
+        if 'oracle_reps' in self.dataset:
+            batch['low_actor_goals'] = self.dataset['oracle_reps'][low_actor_goal_idxs]
+        else:
+            batch['low_actor_goals'] = self.get_observations(low_actor_goal_idxs)
 
         return batch
 
@@ -395,3 +479,116 @@ class HGCDataset(GCDataset):
         batch['low_actor_goals'] = self.get_high_actions(low_actor_goal_idxs, idxs)
 
         return batch
+    
+class WeightedReplayBufferWrapper:
+    """Wrapper for a replay buffer with weighted sampling.
+
+    This class wraps a replay buffer and provides a method to sample transitions with weights.
+    """
+
+    def __init__(self, replay_buffer, default_weight=1.0):
+        self.replay_buffer = replay_buffer
+        self.weights = np.full(len(replay_buffer), default_weight, dtype=np.float32)
+
+    def reweight(self, fn=lambda transition: 0.0):
+        """Reweight the transitions in the replay buffer using the given function.
+
+        Args:
+            fn: Function that takes a transition and returns a weight.
+        """
+        for i in range(len(self.replay_buffer)):
+            transition = self.replay_buffer.get_subset([i])
+            self.weights[i] = fn(transition)
+
+    def sample(self, batch_size):
+        """Sample a batch of transitions with weights."""
+        idxs = np.random.choice(
+            len(self.replay_buffer), size=batch_size, p=self.weights / np.sum(self.weights)
+        )
+        return self.replay_buffer.get_subset(idxs)
+    
+    def add_transition(self, transition, weight=1.0):
+        """Add a transition to the replay buffer with a weight."""
+        self.replay_buffer.add_transition(transition)
+        self.weights = np.append(self.weights, weight)
+
+    def clear(self):
+        """Clear the replay buffer and weights."""
+        self.replay_buffer.clear()
+        self.weights = np.array([], dtype=np.float32)
+
+    def get_subset(self, idxs):
+        """Return a subset of the replay buffer given the indices."""
+        return self.replay_buffer.get_subset(idxs)
+
+    def get_random_idxs(self, num_idxs):
+        """Return `num_idxs` random indices."""
+        return self.replay_buffer.get_random_idxs(num_idxs)
+    
+class SimpleWeightedReplayBufferWrapper(ReplayBuffer):
+    """Wrapper for a replay buffer with weighted sampling.
+
+    This class wraps a replay buffer and provides a method to sample transitions with weights.
+    """
+    @classmethod
+    def create_from_initial_dataset(cls, init_dataset, size, new_to_old_ratio=0.5):
+        """Create a replay buffer from the initial dataset.
+
+        Args:
+            init_dataset: Initial dataset.
+            size: Size of the replay buffer.
+        """
+        def create_buffer(init_buffer):
+            buffer = np.zeros((size, *init_buffer.shape[1:]), dtype=init_buffer.dtype)
+            buffer[: len(init_buffer)] = init_buffer
+            return buffer
+
+        buffer_dict = jax.tree_util.tree_map(create_buffer, init_dataset)
+        dataset = cls(buffer_dict)
+        dataset.size = dataset.pointer = get_size(init_dataset)
+        dataset.old_size = dataset.size
+        dataset.new_to_old_ratio = new_to_old_ratio
+        return dataset
+    
+    def get_random_idxs_old(self, num_idxs):
+        """Return `num_idxs` random indices from the old transitions."""
+        if 'valids' in self._dict:
+            return self.valid_idxs[np.random.randint(len(self.valid_idxs), size=num_idxs)]
+        else:
+            return np.random.randint(self.old_size, size=num_idxs)
+        
+    def get_random_idxs_new(self, num_idxs):
+        """Return `num_idxs` random indices from the new transitions."""
+        if 'valids' in self._dict:
+            return self.valid_idxs[np.random.randint(len(self.valid_idxs), size=num_idxs)]
+        else:
+            return np.random.randint(self.size - self.old_size, size=num_idxs) + self.old_size
+    
+    def sample(self, batch_size, special_ratio=None):
+        """Sample a batch of transitions with weights."""
+        if special_ratio is not None:
+            # If a special ratio is provided, use it to determine the number of new and old transitions.
+            num_new = int(batch_size * special_ratio)
+            num_old = batch_size - num_new
+        else:
+            num_new = int(batch_size * self.new_to_old_ratio)
+            num_old = batch_size - num_new
+
+        # new_idxs = self.get_random_idxs(num_new)
+        # old_idxs = self.get_random_idxs(num_old)
+        new_idxs = self.get_random_idxs_new(num_new)
+        old_idxs = self.get_random_idxs_old(num_old)
+
+        new_batch = self.get_subset(new_idxs)
+        old_batch = self.get_subset(old_idxs)
+
+        return jax.tree_util.tree_map(
+            lambda new, old: np.concatenate([new, old], axis=0), new_batch, old_batch
+        )
+
+    def get_num_valids(self):
+        """Return the number of valid transitions in the replay buffer."""
+        if 'valids' in self._dict:
+            return np.sum(self._dict['valids'])
+        else:
+            return self.size

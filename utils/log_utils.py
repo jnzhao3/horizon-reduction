@@ -6,8 +6,24 @@ import absl.flags as flags
 import ml_collections
 import numpy as np
 import wandb
+import random
 from PIL import Image, ImageEnhance
+import json, hashlib
 
+# VOLATILE_OR_ABSL_FLAGS = {
+#     # absl logging/debug/help
+#     "logtostderr","alsologtostderr","log_dir","v","verbosity","logger_levels",
+#     "stderrthreshold","showprefixforinfo","run_with_pdb","pdb_post_mortem","pdb",
+#     "run_with_profiling","profile_file","use_cprofile_for_profiling","only_check_args",
+#     "help","helpshort","helpfull","helpxml","?",
+#     # test/chex/pymjcf noise
+#     "test_srcdir","test_tmpdir","test_random_seed","test_randomize_ordering_seed",
+#     "xml_output_file","chex_n_cpu_devices","chex_assert_multiple_cpu_devices",
+#     "chex_skip_pmap_variant_if_single_device","pymjcf_debug","pymjcf_debug_full_dump_dir",
+#     "pymjcf_log_xml",
+#     # your run-volatile paths/IDs
+#     "save_dir","restore_path","restore_epoch",
+# }
 
 class CsvLogger:
     """CSV logger for logging metrics to a CSV file."""
@@ -36,24 +52,37 @@ class CsvLogger:
         if self.file is not None:
             self.file.close()
 
+def get_hash(s):
+    import hashlib
+    encoded_string = s.encode('utf-8')
 
-def get_exp_name(seed, config=None):
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(encoded_string)
+    hex_digest = sha256_hash.hexdigest()
+    return hex_digest
+
+
+def get_exp_name(seed=None, config=None):
     """Return the experiment name."""
-    exp_name = ''
-    exp_name += f'sd{seed:03d}_'
-    if config:
-        exp_name += f'{hash(config)}_'
-    if 'SLURM_JOB_ID' in os.environ:
-        exp_name += f's_{os.environ["SLURM_JOB_ID"]}.'
-    if 'SLURM_PROCID' in os.environ:
-        exp_name += f'{os.environ["SLURM_PROCID"]}.'
-    if 'SLURM_ARRAY_JOB_ID' in os.environ:
-        exp_name += f'{os.environ["SLURM_ARRAY_JOB_ID"]}.'
-    if 'SLURM_ARRAY_TASK_ID' in os.environ:
-        exp_name += f'{os.environ["SLURM_ARRAY_TASK_ID"]}.'
-    exp_name += f'{datetime.now().strftime("%Y%m%d_%H%M%S.%f")[:-3]}'
 
-    return exp_name
+    exp_name = ''
+
+    info = {}
+    if 'SLURM_JOB_ID' in os.environ:
+        info['SLURM_JOB_ID'] = os.environ["SLURM_JOB_ID"]
+    if 'SLURM_PROC_ID' in os.environ:
+        info['SLURM_PROC_ID'] = os.environ['SLURM_PROC_ID']
+    if 'SLURM_ARRAY_JOB_ID' in os.environ:
+        info['SLURM_ARRAY_JOB_ID'] = os.environ['SLURM_ARRAY_JOB_ID']
+    if 'SLURM_ARRAY_TASK_ID' in os.environ:
+        info['SLURM_ARRAY_TASK_ID'] = os.environ['SLURM_ARRAY_TASK_ID']
+    
+    if config and hasattr(config, 'run_group') and config.run_group:
+        exp_name += f'{config.run_group}.'
+        str_flags = config.flags_into_string()
+        exp_name = exp_name + get_hash(str_flags)
+
+    return exp_name, info
 
 
 def get_flag_dict():
@@ -71,6 +100,8 @@ def setup_wandb(
     group=None,
     name=None,
     mode='online',
+    id=None,
+    resume=None,
 ):
     """Set up Weights & Biases for logging."""
     wandb_output_dir = tempfile.mkdtemp()
@@ -90,8 +121,13 @@ def setup_wandb(
         ),
         mode=mode,
         save_code=True,
+        id=id,
+        resume=resume if resume else None
     )
 
+    # if id is not None:
+    #     init_kwargs['id'] = id
+    #     init_kwargs['resume'] = 'allow'
     run = wandb.init(**init_kwargs)
 
     return run
@@ -150,3 +186,14 @@ def get_wandb_video(renders=None, n_cols=None, fps=15):
     renders = reshape_video(renders, n_cols)  # (t, c, nr * h, nc * w)
 
     return wandb.Video(renders, fps=fps, format='mp4')
+
+def get_animal():
+    cute_animals = [
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮",
+    "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🐤", "🐣", "🦆", "🦢", "🦉",
+    "🐴", "🐝", "🐞", "🐌", "🐢", "🐍", "🦎", "🐙", "🦀", "🦞", "🦐",
+    "🐬", "🐳", "🐋", "🐟", "🐠", "🐡", "🦈", "🐊", "🐆", "🐅", "🦓", "🦒",
+    "🐘", "🦏", "🦛", "🐪", "🐫", "🦙", "🦘", "🐿", "🦔", "🦇", "🐉", "🪱", "🦑"
+    ]
+    emoji = random.choice(cute_animals)
+    return emoji

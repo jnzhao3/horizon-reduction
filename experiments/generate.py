@@ -68,6 +68,8 @@ COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
 # module load gnu-parallel
 source ~/.bashrc
 micromamba activate qwq
+export PYTHONPATH="../:${{PYTHONPATH}}"
+
 
 declare -a commands=(
   {d_str}

@@ -22,6 +22,8 @@ COM_ID_S=$((TASK_ID * PARALLEL_N + 1))
 # module load gnu-parallel
 source ~/.bashrc
 micromamba activate qwq
+export PYTHONPATH="../:${PYTHONPATH}"
+
 
 declare -a commands=(
   [1]='MUJOCO_GL=egl python e2e.py --run_group=2026-02-27-00_debug --offline_steps=50 --collection_steps=50 --eval_episodes=1 --video_episodes=0 --eval_interval=5 --save_interval=25 --data_plot_interval=25 --log_interval=25 --cleanup=True --seed=1001 --env_name=humanoidmaze-medium-navigate-oraclerep-v0 --dataset_dir=../../scratch/data/humanoidmaze-medium-navigate-v0 --agent=../agents/gcfql.py --wrapper=wrappers/rndsubgoals.py --wrapper.max_episode_steps=2000 --wrapper.pre_init=True --agent.actor_type=best-of-n --agent.train_goal_proposer=True --agent.goal_proposer_type=actor-gc --agent.num_qs=10 --agent.q_agg=mean --agent.discount=0.995 --agent.batch_size=256 --agent.alpha=30.0'

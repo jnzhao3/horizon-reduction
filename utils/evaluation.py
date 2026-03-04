@@ -81,7 +81,8 @@ def evaluate(
         step = 0
         render = []
         while not done:
-            action = actor_fn(observations=observation, temperature=eval_temperature)
+            # action = actor_fn(observations=observation, temperature=eval_temperature)
+            action = actor_fn(observations=observation)
             action = np.array(action)
             action = np.clip(action, -1, 1)
 

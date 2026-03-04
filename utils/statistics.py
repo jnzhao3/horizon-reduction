@@ -89,6 +89,11 @@ class CubeStatistics:
         self.cells_count_per_cube = [{} for _ in range(self.num_cubes)]
         self.num_transitions = 0
         
+def get_statistics_class(env_name):
+    if 'maze' in env_name:
+        return MazeStatistics
+    if 'cube' in env_name:
+        return CubeStatistics
 
 statistics = {
     'humanoidmaze-medium-navigate-v0' : MazeStatistics,

@@ -136,32 +136,62 @@ class FQLAgent(flax.struct.PyTreeNode):
 
         return self.replace(network=new_network, rng=new_rng), info
 
+    # @jax.jit
+    # def sample_actions(
+    #     self,
+    #     observations,
+    #     seed=None,
+    #     temperature=1.0,
+    # ):
+    #     """Sample actions from the one-step policy."""
+    #     if self.config['actor_type'] == 'best-of-n':
+    #         # return self.best_of_n(observations, self.config['num_actions'], seed)
+    #         return self.best_of_n(observations, seed)
+        
+    #     elif self.config['actor_type'] == 'best-of-n-onestep':
+    #         # return self.sample_actions_of_n(observations, self.config['num_actions'], seed)
+    #         return self.sample_actions_of_n(observations, seed)
+        
+    #     action_seed, noise_seed = jax.random.split(seed)
+    #     noises = jax.random.normal(
+    #         action_seed,
+    #         (
+    #             *observations.shape[: -len(self.config['ob_dims'])],
+    #             self.config['action_dim'],
+    #         ),
+    #     )
+    #     actions = self.network.select('actor_onestep_flow')(observations, noises)
+    #     actions = jnp.clip(actions, -1, 1)
+    #     return actions
+
     @jax.jit
     def sample_actions(
         self,
         observations,
         seed=None,
-        temperature=1.0,
     ):
-        """Sample actions from the one-step policy."""
-        if self.config['actor_type'] == 'best-of-n':
-            # return self.best_of_n(observations, self.config['num_actions'], seed)
-            return self.best_of_n(observations, seed)
-        
-        elif self.config['actor_type'] == 'best-of-n-onestep':
-            # return self.sample_actions_of_n(observations, self.config['num_actions'], seed)
-            return self.sample_actions_of_n(observations, seed)
-        
-        action_seed, noise_seed = jax.random.split(seed)
+        action_dim = self.config['action_dim'] * \
+                        (self.config['horizon_length'] if self.config["action_chunking"] else 1)
         noises = jax.random.normal(
-            action_seed,
+            seed,
             (
-                *observations.shape[: -len(self.config['ob_dims'])],
-                self.config['action_dim'],
+                *observations.shape[: -len(self.config['ob_dims'])],  # batch_size
+                self.config["best_of_n"], action_dim
             ),
         )
-        actions = self.network.select('actor_onestep_flow')(observations, noises)
+        observations = jnp.repeat(observations[..., None, :], self.config["best_of_n"], axis=-2)
+        actions = self.network.select(f'actor_onestep_flow')(observations, noises)
         actions = jnp.clip(actions, -1, 1)
+        
+        q = self.network.select("critic")(observations, actions).mean(axis=0)
+        indices = jnp.argmax(q, axis=-1)
+
+        bshape = indices.shape
+        indices = indices.reshape(-1)
+        bsize = len(indices)
+        actions = jnp.reshape(actions, (-1, self.config["best_of_n"], action_dim))[jnp.arange(bsize), indices, :].reshape(
+            bshape + (action_dim,))
+        
         return actions
 
     @jax.jit
@@ -282,7 +312,7 @@ class FQLAgent(flax.struct.PyTreeNode):
         critic_def = Value(
             hidden_dims=config['value_hidden_dims'],
             layer_norm=config['layer_norm'],
-            num_ensembles=config['num_ensembles'], # Made this flexible.
+            num_ensembles=config['num_qs'], # Made this flexible.
             encoder=encoders.get('critic'),
         )
         actor_bc_flow_def = FQLActorVectorField(
@@ -341,9 +371,11 @@ def get_config():
             alpha=10.0,  # BC coefficient (need to be tuned for each environment).
             flow_steps=10,  # Number of flow steps.
             normalize_q_loss=False,  # Whether to normalize the Q loss.
-            num_ensembles=10,
-            actor_type='best-of-n', # could also be 'best-of-n-onestep'
-            actor_num_samples=8,
+            num_qs=10,
+
+            best_of_n=1,
+            horizon_length=ml_collections.config_dict.placeholder(int), # Will be set
+            action_chunking=False,                                      # Use Q-chunking or just n-step return
             encoder=ml_collections.config_dict.placeholder(str),  # Visual encoder name (None, 'impala_small', etc.).
         )
     )

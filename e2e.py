@@ -16,6 +16,7 @@ from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
+from agents.fql import get_config as get_fql_config
 from wrappers.env_wrappers import MazeEnvWrapper
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
@@ -125,6 +126,23 @@ def _get_train_dataset_size(train_dataset):
 def _log_prefixed_info(metrics, prefix, global_step):
     for k, v in metrics.items():
         wandb.log({f'{prefix}/{k}': v}, step=global_step)
+
+
+def _build_fql_config(base_config):
+    fql_config = get_fql_config()
+    if base_config is not None:
+        for k, v in base_config.items():
+            if k in fql_config and v is not None:
+                fql_config[k] = v
+    fql_config['agent_name'] = 'fql'
+    return fql_config
+
+
+def _create_agent(agent_name, seed, example_batch, config):
+    agent_class = agents[agent_name]
+    if agent_name == 'fql':
+        return agent_class.create(seed, example_batch['observations'], example_batch['actions'], config)
+    return agent_class.create(seed, example_batch, config)
 
 
 def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, train_logger, eval_logger):
@@ -294,6 +312,9 @@ def main(_):
         'HGCDataset': HGCDataset,
     }
     config = FLAGS.agent
+    further_training_start = FLAGS.offline_steps + FLAGS.collection_steps
+    further_training_config = _build_fql_config(config)
+    active_config = config
 
     global_step_file = pathlib.Path(FLAGS.save_dir) / 'global_step'
     train_logger = None
@@ -325,13 +346,15 @@ def main(_):
         val_dataset = dataset_class(Dataset.create(**val_dataset_data, freeze=False), config)
         example_batch = train_dataset.sample(1)
 
-        agent_class = agents[config['agent_name']]
-        agent = agent_class.create(FLAGS.seed, example_batch, config)
+        if global_step >= further_training_start:
+            active_config = further_training_config
+
+        agent = _create_agent(active_config['agent_name'], FLAGS.seed, example_batch, active_config)
         print(agent.config, file=sys.stderr)
         agent = restore_agent(agent, FLAGS.save_dir, global_step)
 
         data_collection_env = None
-        if global_step < FLAGS.offline_steps or FLAGS.offline_steps + FLAGS.collection_steps <= global_step:
+        if global_step < FLAGS.offline_steps or further_training_start <= global_step:
             train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
             eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
             first_time = time.time()
@@ -362,8 +385,7 @@ def main(_):
         val_dataset = dataset_class(Dataset.create(**val_dataset_data, freeze=False), config)
         example_batch = train_dataset.sample(1)
 
-        agent_class = agents[config['agent_name']]
-        agent = agent_class.create(FLAGS.seed, example_batch, config)
+        agent = _create_agent(active_config['agent_name'], FLAGS.seed, example_batch, active_config)
         print(agent.config, file=sys.stderr)
 
         if FLAGS.restore_path is not None:
@@ -375,22 +397,22 @@ def main(_):
         while global_step < total_steps:
             if global_step < FLAGS.offline_steps:
                 if global_step == 0:
-                    task_info_to_plot = {
-                        'start_xy': {'x': [env.start_xy[0]], 'y': [env.start_xy[1]], 's': 50, 'c': 'red'},
-                        'all_cells': {'x': env.all_cells[:, 0], 'y': env.all_cells[:, 1], 's': 1, 'c': 'lightgrey'},
-                    }
-                    for t in env.task_infos:
-                        task_info_to_plot[t['task_name']] = {
-                            'x': t['goal_xy'][0],
-                            'y': t['goal_xy'][1],
-                            's': 50,
-                            'c': random.choice(['blue', 'green', 'orange', 'purple', 'brown']),
-                            'marker': random.choice(['*', 'X', 'P', 'D', 'v']),
-                        }
-                    fig_name = plot_data(task_info_to_plot, save_dir=FLAGS.save_dir)
-                    wandb.log({'data_collection/task_info_viz': wandb.Image(fig_name)}, step=global_step)
-                    print(f'Plotted task info to {fig_name}')
-                    os.remove(fig_name)
+                    # task_info_to_plot = {
+                    #     'start_xy': {'x': [env.start_xy[0]], 'y': [env.start_xy[1]], 's': 50, 'c': 'red'},
+                    #     'all_cells': {'x': env.all_cells[:, 0], 'y': env.all_cells[:, 1], 's': 1, 'c': 'lightgrey'},
+                    # }
+                    # for t in env.task_infos:
+                    #     task_info_to_plot[t['task_name']] = {
+                    #         'x': t['goal_xy'][0],
+                    #         'y': t['goal_xy'][1],
+                    #         's': 50,
+                    #         'c': random.choice(['blue', 'green', 'orange', 'purple', 'brown']),
+                    #         'marker': random.choice(['*', 'X', 'P', 'D', 'v']),
+                    #     }
+                    # fig_name = plot_data(task_info_to_plot, save_dir=FLAGS.save_dir)
+                    # wandb.log({'data_collection/task_info_viz': wandb.Image(fig_name)}, step=global_step)
+                    # print(f'Plotted task info to {fig_name}')
+                    # os.remove(fig_name)
 
                     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
                     eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
@@ -418,7 +440,7 @@ def main(_):
                     train_logger.close()
                     eval_logger.close()
 
-            if FLAGS.offline_steps <= global_step < FLAGS.offline_steps + FLAGS.collection_steps:
+            if FLAGS.offline_steps <= global_step < further_training_start:
                 if data_collection_env is None:
                     data_collection_env = make_env_and_datasets(
                         FLAGS.env_name,
@@ -556,16 +578,21 @@ def main(_):
                         global_step_file=global_step_file,
                     )
 
-                if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
+                if global_step == further_training_start:
                     train_dataset['terminals'][train_dataset.size - 1] = 1.0
                     train_dataset = dataset_class(Dataset.create(**train_dataset), config)
                     print(f'new replay buffer size: {train_dataset.size}')
 
-            if FLAGS.offline_steps + FLAGS.collection_steps <= global_step:
+            if further_training_start <= global_step:
 
                 assert train_dataset.dataset['terminals'][train_dataset.size - 1] > 0.0
 
-                if global_step == FLAGS.offline_steps + FLAGS.collection_steps:
+                if global_step == further_training_start:
+                    example_batch = train_dataset.sample(1)
+                    active_config = further_training_config
+                    agent = _create_agent('fql', FLAGS.seed, example_batch, active_config)
+                    print(agent.config, file=sys.stderr)
+
                     train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))
                     eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval_further.csv'))
                     first_time = time.time()
@@ -576,7 +603,7 @@ def main(_):
                     agent=agent,
                     train_dataset=train_dataset,
                     val_dataset=val_dataset,
-                    config=config,
+                    config=active_config,
                     env=env,
                     global_step=global_step,
                     pbar=pbar,

@@ -5,6 +5,54 @@ import numpy as np
 import time
 import os
 
+def plot_heatmap(data, save_dir, xlabel='x', ylabel='y', title='heatmap', all_cells=None, include_labels=False):
+    # your dict (example)
+    d = data
+
+    # --- build grid ---
+    xs = np.array([x for (x, y) in d.keys()], dtype=float)
+    ys = np.array([y for (x, y) in d.keys()], dtype=float)
+
+    x_min, x_max = int(np.floor(xs.min())), int(np.ceil(xs.max()))
+    y_min, y_max = int(np.floor(ys.min())), int(np.ceil(ys.max()))
+
+    # edges for 1x1 squares: [x_min, x_min+1, ..., x_max+1]
+    x_edges = np.arange(x_min, x_max + 2, 1)
+    y_edges = np.arange(y_min, y_max + 2, 1)
+
+    # cell values (ny rows by nx cols); use NaN for "missing" cells
+    Z = np.full((len(y_edges) - 1, len(x_edges) - 1), np.nan, dtype=float)
+
+    # fill Z: row index corresponds to y, col index corresponds to x
+    for (x, y), val in d.items():
+        i = int(round(x)) - x_min  # column
+        j = int(round(y)) - y_min  # row
+        Z[j, i] = val
+
+    # --- plot ---
+    fig, ax = plt.subplots(figsize=(6, 6))
+    m = ax.pcolormesh(x_edges, y_edges, Z, shading="flat")  # cells are 1x1 by construction
+    fig.colorbar(m, ax=ax, label="density")
+
+    # plt.scatter(x=all_cells[:, 0], y=all_cells[:, 1], s=10, c='gray', alpha=1.0)
+    if all_cells is not None:
+        for i in range(len(all_cells)):
+            # plt.annotate(f'{(all_cells[i, 0], all_cells[i, 1])}', (all_cells[i, 0], all_cells[i, 1]), xytext=(2, 2), textcoords='offset points', c='gray')
+            plt.scatter(x=all_cells[:, 0], y=all_cells[:, 1], s=10, c='gray', alpha=1.0)
+
+    ax.set_aspect("equal")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    # plt.show()
+    current_date = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+    points_name = f"points-{current_date}.png"
+    if save_dir:
+        points_name = os.path.join(save_dir, points_name)
+    plt.savefig(points_name)
+    return points_name
+
 def bfs(init_ij, goal_ij, all_cells):
     s = init_ij
     all_cells_dict = {cell : [False, None] for cell in all_cells}

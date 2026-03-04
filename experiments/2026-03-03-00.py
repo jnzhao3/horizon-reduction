@@ -17,7 +17,7 @@ data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = 'fql_baseline.py'
-priority = 'lowest'
+priority = 'high'
 ##=========== END INITIAL INFORMATION ===========##
 
 

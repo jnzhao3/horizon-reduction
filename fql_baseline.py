@@ -174,7 +174,7 @@ def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, 
         )
 
 
-def _evaluate(agent, config, env):
+def _evaluate(agent, config, env, prefix=''):
     eval_info, _, _ = evaluate(
                     agent=agent,
                     env=env,
@@ -184,6 +184,11 @@ def _evaluate(agent, config, env):
                     video_frame_skip=FLAGS.video_frame_skip,
                 )
 
+    if prefix is not '':
+        new_eval_info = {}
+        for k, v in eval_info.items():
+            new_eval_info[f'{prefix}k'] = v
+        eval_info = new_eval_info
     return eval_info
     # return env.evaluate_step(
     #     agent,
@@ -225,7 +230,7 @@ def _train_step(
         train_metrics = {f'{prefix}training/{k}': v for k, v in update_info.items()}
         val_batch = val_dataset.sample(config['batch_size'])
         _, val_info = agent.total_loss(val_batch, grad_params=None)
-        train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
+        train_metrics.update({f'{prefix}validation/{k}': v for k, v in val_info.items()})
 
         train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
         train_metrics['time/total_time'] = time.time() - first_time

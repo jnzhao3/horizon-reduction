@@ -12,12 +12,13 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-03-03-00"
+# run_group = "2026-03-03-00"
+run_group = "2026-03-06-00"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = 'fql_baseline.py'
-priority = 'high'
+priority = 'normal'
 ##=========== END INITIAL INFORMATION ===========##
 
 
@@ -37,9 +38,9 @@ agent_params = dict(
     },
 )
 
-env_suffix = [f'-singletask-task{i}-v0' for i in range(1, 6)]
+env_suffix = [f'-singletask-task{i}-v0' for i in range(2, 6)] # modified because I already ran 1
 data_suffix = "-v0"
-train_data_size = 100000
+# train_data_size = 100000
 
 for debug in [True, False]:
     if args.gen == 'local':
@@ -77,7 +78,7 @@ for debug in [True, False]:
         # "humanoidmaze-large-navigate",
         # "puzzle-4x4-play-sparse",
         "humanoidmaze-medium-navigate",
-        "antmaze-medium-navigate",
+        # "antmaze-medium-navigate",
         # "antmaze-giant-navigate", 
         # "cube-triple-play",
         # "cube-quadruple-play",
@@ -88,12 +89,11 @@ for debug in [True, False]:
     ]:
         for suffix in env_suffix:
             env_names.append(f"{domain}{suffix}")
-        
-        data_dirs.append(f"{domain}{data_suffix}")
-        domains.append(domain)
+            data_dirs.append(f"{domain}{data_suffix}")
+        # domains.append(domain)
 
-    best_of_n = [1, 4, 8, 16]
-    alphas = [1.0, 3.0, 30.0, 300.0]
+    best_of_n = [4] # 4 seems like the best for humanoidmaze
+    alphas = [30.0, 300.0]
     # action_chunking = [True, False]
 
     run_count = 0
@@ -101,7 +101,7 @@ for debug in [True, False]:
         for alpha in alphas:
             for seed in [1001, 2002, 3003]:
                 if debug and seed != 1001: break
-                for env_name, data_dir, domain in zip(env_names, data_dirs, domains):
+                for env_name, data_dir in zip(env_names, data_dirs):
                     
                     base_kwargs = {
                         "seed": seed,

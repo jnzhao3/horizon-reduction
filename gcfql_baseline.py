@@ -203,11 +203,11 @@ def _evaluate(agent, config, env):
             eval_gaussian=FLAGS.eval_gaussian,
         )
         for metric_name, metric_value in eval_info.items():
-            eval_metrics[f'evaluation/{task_name}_{metric_name}'] = metric_value
+            eval_metrics[f'{prefix}evaluation/{task_name}_{metric_name}'] = metric_value
             overall_metrics[metric_name].append(metric_value)
 
     for metric_name, values in overall_metrics.items():
-        eval_metrics[f'evaluation/overall_{metric_name}'] = np.mean(values)
+        eval_metrics[f'{prefix}evaluation/overall_{metric_name}'] = np.mean(values)
 
     return eval_metrics
 
@@ -249,7 +249,7 @@ def _train_step(
         train_logger.log(train_metrics, step=global_step)
 
     if FLAGS.eval_interval != 0 and (global_step == 1 or global_step % FLAGS.eval_interval == 0):
-        eval_metrics = _evaluate(agent, config, env)
+        eval_metrics = _evaluate(agent, config, env, prefix=prefix)
         wandb.log(eval_metrics, step=global_step)
         eval_logger.log(eval_metrics, step=global_step)
 

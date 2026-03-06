@@ -183,11 +183,11 @@ def _evaluate(agent, config, env, prefix=''):
                     num_video_episodes=FLAGS.video_episodes,
                     video_frame_skip=FLAGS.video_frame_skip,
                 )
-
+    
     if prefix is not '':
         new_eval_info = {}
         for k, v in eval_info.items():
-            new_eval_info[f'{prefix}k'] = v
+            new_eval_info[f'{prefix}{k}'] = v
         eval_info = new_eval_info
     return eval_info
     # return env.evaluate_step(
@@ -242,7 +242,7 @@ def _train_step(
         example_batch = train_dataset.sample(1)
         action_dim = example_batch["actions"].shape[-1]
         # eval_metrics = _evaluate(agent, config, env)
-        eval_metrics = _evaluate(agent, config, env)
+        eval_metrics = _evaluate(agent, config, env, prefix=prefix)
         wandb.log(eval_metrics, step=global_step)
         eval_logger.log(eval_metrics, step=global_step)
 

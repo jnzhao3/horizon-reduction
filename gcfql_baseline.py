@@ -24,7 +24,7 @@ from utils.plot_utils import plot_heatmap
 from utils.samplers import to_oracle_rep
 from utils.statistics import get_statistics_class
 from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
-from utils.evaluation import evaluate_gcfql
+from utils.evaluation import evaluate_gcfql, evaluate
 
 FLAGS = flags.FLAGS
 
@@ -40,6 +40,7 @@ flags.DEFINE_string('dataset_dir', None, 'Dataset directory.')
 
 ##=========== AGENT SPECIFICATION ===========##
 config_flags.DEFINE_config_file('agent', 'agents/gcfql.py', lock_config=False)
+config_flags.DEFINE_config_file('fql_agent', 'agents/fql.py', lock_config=False)
 flags.DEFINE_string('save_dir', '../../scratch', 'Save directory.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
@@ -182,34 +183,55 @@ def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, 
         )
 
 
-def _evaluate(agent, config, env):
-    task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
-    eval_metrics = {}
-    overall_metrics = defaultdict(list)
+def _evaluate(agent, config, env, prefix=''):
 
-    for task_id, task_info in enumerate(task_infos, start=1):
-        task_name = task_info.get('task_name', f'task{task_id}')
-        eval_info, _, _ = evaluate_gcfql(
-            agent=agent,
-            env=env,
-            env_name=FLAGS.env_name,
-            goal_conditioned=True,
-            task_id=task_id,
-            config=config,
-            num_eval_episodes=FLAGS.eval_episodes,
-            num_video_episodes=FLAGS.video_episodes,
-            video_frame_skip=FLAGS.video_frame_skip,
-            eval_temperature=FLAGS.eval_temperature,
-            eval_gaussian=FLAGS.eval_gaussian,
-        )
-        for metric_name, metric_value in eval_info.items():
-            eval_metrics[f'{prefix}evaluation/{task_name}_{metric_name}'] = metric_value
-            overall_metrics[metric_name].append(metric_value)
+    if agent.config['agent_name'] == 'fql':
+        eval_info, _, _ = evaluate(
+                    agent=agent,
+                    env=env,
+                    config=config,
+                    num_eval_episodes=FLAGS.eval_episodes,
+                    num_video_episodes=FLAGS.video_episodes,
+                    video_frame_skip=FLAGS.video_frame_skip,
+                )
+    
+        if prefix != '':
+            new_eval_info = {}
+            for k, v in eval_info.items():
+                new_eval_info[f'{prefix}{k}'] = v
+            eval_info = new_eval_info
+        return eval_info
+    
+    else:
 
-    for metric_name, values in overall_metrics.items():
-        eval_metrics[f'{prefix}evaluation/overall_{metric_name}'] = np.mean(values)
+        task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
+        eval_metrics = {}
+        overall_metrics = defaultdict(list)
 
-    return eval_metrics
+        for task_id, task_info in enumerate(task_infos, start=1):
+            task_name = task_info.get('task_name', f'task{task_id}')
+            eval_info, _, _ = evaluate_gcfql(
+                agent=agent,
+                env=env,
+                env_name=FLAGS.env_name,
+                goal_conditioned=True,
+                task_id=task_id,
+                config=config,
+                num_eval_episodes=FLAGS.eval_episodes,
+                num_video_episodes=FLAGS.video_episodes,
+                video_frame_skip=FLAGS.video_frame_skip,
+                eval_temperature=FLAGS.eval_temperature,
+                eval_gaussian=FLAGS.eval_gaussian,
+                use_oracle_rep=True
+            )
+            for metric_name, metric_value in eval_info.items():
+                eval_metrics[f'{prefix}evaluation/{task_name}_{metric_name}'] = metric_value
+                overall_metrics[metric_name].append(metric_value)
+
+        for metric_name, values in overall_metrics.items():
+            eval_metrics[f'{prefix}evaluation/overall_{metric_name}'] = np.mean(values)
+
+        return eval_metrics
 
 
 def _train_step(
@@ -471,7 +493,9 @@ def main(_):
                     train_dataset.size = current_size
 
                     ob, reset_info = env.reset()
-                    goal = reset_info.get('goal')
+                    # goal = reset_info.get('goal')
+                    goal = train_dataset.sample(1)['oracle_reps'][0]
+                    print(f'global_step: {global_step}, goal: {goal}', file=sys.stderr)
                     done = False
 
                     stats = get_statistics_class(FLAGS.env_name)(env=env)
@@ -526,8 +550,8 @@ def main(_):
                     qpos=info['qpos'],
                     qvel=info['qvel'],
                     oracle_reps=to_oracle_rep(obs=ob[None], env=env)[0],
-                    masks=1.0 - terminated,
-                    rewards=reward
+                    # masks=1.0 - terminated,
+                    # rewards=reward
                 )
 
                 train_dataset.add_transition(tran)
@@ -554,7 +578,9 @@ def main(_):
 
                 if done:
                     ob, reset_info = env.reset()
-                    goal = reset_info.get('goal')
+                    # goal = reset_info.get('goal')
+                    goal = train_dataset.sample(1)['oracle_reps'][0]
+                    print(f'global_step: {global_step}, goal: {goal}', file=sys.stderr)
                 else:
                     ob = next_ob
                 collection_state['ob'] = ob
@@ -591,13 +617,16 @@ def main(_):
             if further_training_start <= global_step:
 
                 if global_step == further_training_start:
+                    fql_config = FLAGS.fql_agent
                     train_dataset['terminals'][train_dataset.size - 1] = 1.0
                     train_dataset = Dataset.create(**train_dataset)
-                    train_dataset = _wrap_goal_conditioned_dataset(train_dataset, config)
+                    # train_dataset = _wrap_goal_conditioned_dataset(train_dataset, fql_config)
                     print(f'new replay buffer size: {train_dataset.size}')
 
                     example_batch = train_dataset.sample(1)
-                    agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, config)
+                    agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, fql_config)
+
+                    import ipdb; ipdb.set_trace() # assert that this is an fql agent
 
                     print(agent.config, file=sys.stderr)
 
@@ -611,7 +640,7 @@ def main(_):
                     agent=agent,
                     train_dataset=train_dataset,
                     val_dataset=val_dataset,
-                    config=config,
+                    config=fql_config,
                     env=env,
                     global_step=global_step,
                     pbar=pbar,

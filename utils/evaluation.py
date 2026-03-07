@@ -127,6 +127,7 @@ def evaluate_gcfql(
     video_frame_skip=3,
     eval_temperature=0,
     eval_gaussian=None,
+    use_oracle_rep=True
 ):
     """Evaluate the agent in the environment.
 
@@ -158,6 +159,8 @@ def evaluate_gcfql(
         if goal_conditioned:
             observation, info = env.reset(options=dict(task_id=task_id, render_goal=should_render))
             goal = info.get('goal')
+            if use_oracle_rep:
+                goal = goal[:2]
             goal_frame = info.get('goal_rendered')
         else:
             observation, info = env.reset()

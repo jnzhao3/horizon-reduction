@@ -277,43 +277,77 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
         # need to clip goals?
         return x
-
+    
     @jax.jit
     def sample_actions(
         self,
         observations,
         goals=None,
         seed=None,
-        temperature=1.0,
+        temperature=1.0
     ):
-        """Sample actions from the one-step policy."""
-
-        if self.config['actor_type'] == 'best-of-n':
-
-            return self.best_of_n(observations=observations, goals=goals, seed=seed)
-        
-        mult_goals = goals.ndim > 1 and observations.ndim == 1
-
-        action_seed, noise_seed = jax.random.split(seed)
-        actions = jax.random.normal(
-            action_seed,
+        # TODO: no longer supports multiple goals
+        action_dim = self.config['action_dim'] * \
+                        (self.config['horizon_length'] if self.config["action_chunking"] else 1)
+        noises = jax.random.normal(
+            seed,
             (
-                *observations.shape[: -len(self.config['ob_dims'])],
-                self.config['action_dim'],
+                *observations.shape[: -len(self.config['ob_dims'])],  # batch_size
+                self.config["best_of_n"], action_dim
             ),
         )
-
-        if mult_goals:
-            observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
-            actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
-            
-        actions = self.network.select('actor_onestep_flow')(observations=observations, goals=goals, actions=actions)
-
-        if mult_goals:
-            actions = actions.mean(axis=0)
-
+        observations = jnp.repeat(observations[..., None, :], self.config["best_of_n"], axis=-2)
+        goals = jnp.repeat(goals[..., None, :], self.config['best_of_n'], axis=-2)
+        actions = self.network.select(f'actor_onestep_flow')(observations, goals, noises)
         actions = jnp.clip(actions, -1, 1)
+        
+        q = self.network.select("critic")(observations, goals, actions).mean(axis=0)
+        indices = jnp.argmax(q, axis=-1)
+
+        bshape = indices.shape
+        indices = indices.reshape(-1)
+        bsize = len(indices)
+        actions = jnp.reshape(actions, (-1, self.config["best_of_n"], action_dim))[jnp.arange(bsize), indices, :].reshape(
+            bshape + (action_dim,))
+        
         return actions
+
+    # @jax.jit
+    # def sample_actions(
+    #     self,
+    #     observations,
+    #     goals=None,
+    #     seed=None,
+    #     temperature=1.0,
+    # ):
+    #     """Sample actions from the one-step policy."""
+
+    #     if self.config['actor_type'] == 'best-of-n':
+
+    #         return self.best_of_n(observations=observations, goals=goals, seed=seed)
+        
+    #     mult_goals = goals.ndim > 1 and observations.ndim == 1
+
+    #     action_seed, noise_seed = jax.random.split(seed)
+    #     actions = jax.random.normal(
+    #         action_seed,
+    #         (
+    #             *observations.shape[: -len(self.config['ob_dims'])],
+    #             self.config['action_dim'],
+    #         ),
+    #     )
+
+    #     if mult_goals:
+    #         observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
+    #         actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
+            
+    #     actions = self.network.select('actor_onestep_flow')(observations=observations, goals=goals, actions=actions)
+
+    #     if mult_goals:
+    #         actions = actions.mean(axis=0)
+
+    #     actions = jnp.clip(actions, -1, 1)
+    #     return actions
     
     @jax.jit
     def best_of_n(
@@ -551,8 +585,11 @@ def get_config():
             actor_p_randomgoal=0.5,  # Probability of using a random state as the actor goal.
             actor_geom_sample=True,  # Whether to use geometric sampling for future actor goals.
             gc_negative=False,  # Whether to use '0 if s == g else -1' (True) or '1 if s == g else 0' (False) as reward.
-            actor_type='best-of-n',
-            num_actions=8,
+            # actor_type='best-of-n',
+            # num_actions=8,
+            best_of_n=1,
+            horizon_length=ml_collections.config_dict.placeholder(int),
+            action_chunking=False,
             train_goal_proposer=False,
             subgoal_steps=25, # TODO: does this need to be changed?
             # value_loss_type='squared',

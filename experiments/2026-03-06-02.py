@@ -37,7 +37,8 @@ agent_params = dict(
     },
 )
 
-env_suffix = [f'-v0']
+# env_suffix = [f'-v0']
+env_suffix = [f'-singletask-task{i}-v0' for i in range(1, 6)]
 data_suffix = "-v0"
 # train_data_size = 100000
 
@@ -49,16 +50,17 @@ for debug in [True, False]:
     if debug:
         gen.add_common_prefix({
             "run_group": run_group + "_debug",
-            "offline_steps": 50,
+            "offline_steps": 5,
             "further_offline_steps": 50,
-            "collection_steps": 50,
+            "collection_steps": 5,
             "eval_episodes": 1,
             "video_episodes": 0,
             "eval_interval": 5,
             "save_interval": 25,
             "data_plot_interval": 25,
             "log_interval": 25,
-            "cleanup": True
+            "cleanup": True,
+            "eval_episodes": 0
         })
     else:
         gen.add_common_prefix({

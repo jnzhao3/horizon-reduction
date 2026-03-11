@@ -502,11 +502,6 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         )
 
         if config['train_goal_proposer']:
-            # value_def = GCValue(
-            #     hidden_dims=config['value_hidden_dims'],
-            #     layer_norm=config['layer_norm'],
-            #     num_ensembles=config['num_qs'],
-            # )
             goal_proposer_def = ActorVectorField(
                 hidden_dims=config['actor_hidden_dims'],
                 action_dim=goal_dim, # TODO: double check that

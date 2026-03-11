@@ -25,6 +25,7 @@ from utils.samplers import to_oracle_rep
 from utils.statistics import get_statistics_class
 from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
 from utils.evaluation import evaluate_gcfql, evaluate
+from ogbench.relabel_utils import add_oracle_reps, relabel_dataset
 
 FLAGS = flags.FLAGS
 
@@ -427,8 +428,11 @@ def main(_):
 
         datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
         dataset_idx = 0
+
+        splits = FLAGS.env_name.split('-')
+        env_name = '-'.join(splits[:-3]) + '-v0'
         env, train_dataset_data, val_dataset_data = make_env_and_datasets(
-            FLAGS.env_name,
+            env_name,
             dataset_path=datasets[dataset_idx],
             use_oracle_reps=True,
         )
@@ -619,14 +623,20 @@ def main(_):
                 if global_step == further_training_start:
                     fql_config = FLAGS.fql_agent
                     train_dataset['terminals'][train_dataset.size - 1] = 1.0
-                    train_dataset = Dataset.create(**train_dataset)
+                    
                     # train_dataset = _wrap_goal_conditioned_dataset(train_dataset, fql_config)
+                    datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
+                    dataset_idx = 0
+
+                    env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx], use_oracle_reps=True)
                     print(f'new replay buffer size: {train_dataset.size}')
+                    from flax.core import unfreeze
+                    train_dataset = unfreeze(train_dataset)
+                    relabel_dataset(FLAGS.env_name, env, train_dataset)
+                    train_dataset = Dataset.create(**train_dataset, freeze=False)
 
                     example_batch = train_dataset.sample(1)
-                    agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, fql_config)
-
-                    import ipdb; ipdb.set_trace() # assert that this is an fql agent
+                    agent = _create_agent(fql_config['agent_name'], FLAGS.seed, example_batch, fql_config)
 
                     print(agent.config, file=sys.stderr)
 

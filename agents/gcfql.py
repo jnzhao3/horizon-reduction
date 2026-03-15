@@ -22,6 +22,13 @@ class GCFQLAgent(flax.struct.PyTreeNode):
     network: Any
     config: Any = nonpytree_field()
 
+    @staticmethod
+    def bce_loss(pred_logit, target):
+        """Compute binary cross-entropy from logits against soft targets."""
+        log_pred = jax.nn.log_sigmoid(pred_logit)
+        log_not_pred = jax.nn.log_sigmoid(-pred_logit)
+        return -(log_pred * target + log_not_pred * (1 - target))
+
     @jax.jit
     def critic_loss(self, batch, grad_params, rng):
         """Compute the FQL critic loss."""
@@ -170,6 +177,11 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             observations=batch['observations'], goals=batch['value_goals'], actions=x_t, times=t, params=grad_params
             )
             bc_flow_loss = jnp.mean((pred - vel) ** 2)
+        elif self.config['goal_proposer_type'] == 'low_actor_goals':
+            pred = self.network.select('goal_proposer')(
+            observations=batch['observations'], goals=batch['low_actor_goals'], actions=x_t, times=t, params=grad_params
+            )
+            bc_flow_loss = jnp.mean((pred - vel) ** 2)
         elif self.config['goal_proposer_type'] == 'default':
             pred = self.network.select('goal_proposer')(
             observations=batch['observations'], actions=x_t, times=t, params=grad_params
@@ -182,27 +194,30 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     @jax.jit
     def value_loss(self, batch, grad_params, rng):
-        assert False, "value_loss not supported currently"
         pred = self.network.select('value')(
             observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
         )
 
-        q_pred = self.network.select('critic')(
+        q_pred = self.network.select('target_critic')(
             batch['observations'], goals=batch['value_goals'], actions=batch['actions']
-        ) # TODO: evaluate, select actions from optimal distribution?
+        )
+
+        if self.config['critic_loss_type'] == 'bce':
+            q_pred = jax.nn.sigmoid(q_pred)
+        if self.config['q_agg'] == 'min':
+            q_pred = q_pred.min(axis=0)
+        elif self.config['q_agg'] == 'mean':
+            q_pred = q_pred.mean(axis=0)
 
         if self.config['critic_loss_type'] == 'squared':
             value_loss = jnp.square(pred - q_pred).mean()
         elif self.config['critic_loss_type'] == 'bce':
-            log_pred = jax.nn.log_sigmoid(pred)
-            log_not_pred = jax.nn.log_sigmoid(-pred)
-
-            q_pred = jax.nn.sigmoid(q_pred) # TODO: evaluate if this is correct
-            value_loss = -(log_pred * q_pred + log_not_pred * (1 - q_pred)).mean()
+            value_loss = self.bce_loss(pred, q_pred).mean()
         else:
             assert False, 'set critic_loss_type to be a valid value!'
 
-        return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred.mean()}
+        pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
+        return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
 
     @jax.jit
     def total_loss(self, batch, grad_params, rng=None):
@@ -223,17 +238,20 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         loss = 0.0
         loss = critic_loss + actor_loss
 
+        if self.config['train_value']:
+            value_loss, value_info = self.value_loss(batch, grad_params, rng)
+            for k, v in value_info.items():
+                info[f'value/{k}'] = v
+
+            loss = loss + value_loss
+
         if self.config['train_goal_proposer']:
-            # Goal proposer loss.
             goal_propose_loss, goal_propose_info = self.goal_proposer_loss(batch, grad_params, rng)
-            # value_loss, value_info = self.value_loss(batch, grad_params, rng)
 
             for k, v in goal_propose_info.items():
                 info[f'goal_proposer/{k}'] = v
-            # for k, v in value_info.items():
-            #     info[f'value/{k}'] = v
 
-            loss = loss + goal_propose_loss # + value_loss
+            loss = loss + goal_propose_loss
 
         return loss, info
 
@@ -277,6 +295,22 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
         # need to clip goals?
         return x
+
+    @jax.jit
+    def compute_dynamical_distance(self, states, goals):
+        states = jnp.asarray(states)[..., :2] # TODO: one of these days, change this to not force the oracle representation
+        v = self.network.select('value')(states, goals=goals)
+        discount = self.config['discount']
+
+        if self.config['critic_loss_type'] == 'bce':
+            v = jax.nn.sigmoid(v)
+
+        if self.config['gc_negative']:
+            gamma_to_d = jnp.clip(1.0 + (1.0 - discount) * v, 1e-6, 1.0)
+        else:
+            gamma_to_d = jnp.clip(v, 1e-6, 1.0)
+
+        return jnp.log(gamma_to_d) / jnp.log(discount)
     
     @jax.jit
     def sample_actions(
@@ -501,6 +535,13 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             layer_norm=config['layer_norm'],
         )
 
+        if config['train_value'] or config['train_goal_proposer']:
+            value_def = GCValue(
+                hidden_dims=config['value_hidden_dims'],
+                layer_norm=config['layer_norm'],
+                num_ensembles=1,
+            )
+
         if config['train_goal_proposer']:
             goal_proposer_def = ActorVectorField(
                 hidden_dims=config['actor_hidden_dims'],
@@ -513,7 +554,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
                 network_info = dict(
                 critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
                 target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
-                # value=(value_def, (ex_goals, ex_goals, None)),
+                value=(value_def, (ex_goals, ex_goals)),
                 actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
                 actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
                 goal_proposer=(goal_proposer_def, (ex_observations, None, ex_goals, ex_times)) # TODO: check if this is reasonable?
@@ -522,11 +563,19 @@ class GCFQLAgent(flax.struct.PyTreeNode):
                 network_info = dict(
                     critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
                     target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
-                    # value=(value_def, (ex_goals, ex_goals, None)),
+                    value=(value_def, (ex_goals, ex_goals)),
                     actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
                     actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
                     goal_proposer=(goal_proposer_def, (ex_observations, ex_goals, ex_goals, ex_times)) # TODO: check if this is reasonable?
                 )
+        elif config['train_value']:
+            network_info = dict(
+                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                value=(value_def, (ex_goals, ex_goals)),
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None))
+            )
         else:
             network_info = dict(
                 critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
@@ -585,6 +634,7 @@ def get_config():
             best_of_n=1,
             horizon_length=ml_collections.config_dict.placeholder(int),
             action_chunking=False,
+            train_value=True,
             train_goal_proposer=False,
             subgoal_steps=25, # TODO: does this need to be changed?
             # value_loss_type='squared',

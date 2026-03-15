@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import tqdm
 import wandb
@@ -46,17 +47,11 @@ flags.DEFINE_string('save_dir', '../../scratch', 'Save directory.')
 
 ##=========== TRAINING HYPERPARAMETERS ===========##
 flags.DEFINE_integer('offline_steps', 1000000, 'Number of offline steps.')
-flags.DEFINE_integer('further_offline_steps', 1000000, 'Number of offline steps for the second round of training') # TODO: eventually, delete this
 flags.DEFINE_integer('log_interval', 1000, 'Logging interval.')
 flags.DEFINE_integer('eval_interval', 10000, 'Evaluation interval.')
 flags.DEFINE_integer('save_interval', 100000, 'Saving interval.')
-flags.DEFINE_integer('collection_steps', 1000000, 'Number of data collection steps.')
 flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
 flags.DEFINE_bool('cleanup', False, 'If true, delete saved data and weight checkpoints at run end.')
-flags.DEFINE_integer('steps_toward_sg', 100, 'Number of environment steps allocated to each subgoal before resampling.')
-flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
-flags.DEFINE_float('triangle_threshold', 0.0, 'Slack allowed in the triangle-inequality filter.')
-flags.DEFINE_float('subgoal_reached_distance', 1.0, 'Dynamical-distance threshold for considering a subgoal reached.')
 
 ##=========== EVALUATION HYPERPARAMETERS ===========##
 flags.DEFINE_integer('eval_episodes', 10, 'Number of episodes for each task.')
@@ -124,6 +119,41 @@ def _cleanup_checkpoints(save_dir):
     print(f'Cleanup enabled. Removed {len(removed)} checkpoint files.')
 
 
+def _get_train_dataset_size(train_dataset):
+    # if hasattr(train_dataset, 'size'):
+    #     return int(train_dataset.size)
+
+    # dataset = _dataset_mapping(train_dataset)
+    # if isinstance(dataset, dict):
+    #     for key in ('observations', 'actions', 'rewards', 'terminals', 'next_observations'):
+    #         if key in dataset:
+    #             return int(len(dataset[key]))
+    #     if len(dataset) > 0:
+    #         first_value = next(iter(dataset.values()))
+    #         return int(len(first_value))
+
+    # try:
+    #     return int(len(train_dataset))
+    # except TypeError:
+    #     return None
+    return train_dataset.size
+
+
+# def _log_prefixed_info(metrics, prefix, global_step):
+#     for k, v in metrics.items():
+#         wandb.log({f'{prefix}/{k}': v}, step=global_step)
+
+
+# def _build_fql_config(base_config):
+#     fql_config = get_fql_config()
+#     if base_config is not None:
+#         for k, v in base_config.items():
+#             if k in fql_config and v is not None:
+#                 fql_config[k] = v
+#     fql_config['agent_name'] = 'fql'
+#     return fql_config
+
+
 def _create_agent(agent_name, seed, example_batch, config):
     agent_class = agents[agent_name]
     if agent_name == 'fql':
@@ -151,6 +181,69 @@ def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, 
             eval_logger,
             reason='signal',
         )
+
+
+def _log_value_heatmaps(agent, env, train_dataset, save_dir, global_step):
+    """Log value function heatmaps for each task."""
+    if agent.config['agent_name'] != 'gcfql' or not agent.config.get('train_value', False):
+        return {}, []
+    
+    task_infos = env.unwrapped.task_infos if hasattr(env.unwrapped, 'task_infos') else env.task_infos
+    heatmap_logs = {}
+    fig_files = []
+    
+    # Get all unique positions from the dataset
+    # We'll use the training dataset to determine the grid
+    dataset_for_plot = _dataset_mapping(train_dataset)
+    if 'oracle_reps' not in dataset_for_plot:
+        return heatmap_logs, fig_files
+        
+    floored = np.floor(dataset_for_plot['oracle_reps'])
+    unique_positions = set()
+    for i in range(len(floored)):
+        rounded = (floored[i][0], floored[i][1])
+        unique_positions.add(rounded)
+    
+    positions = np.array(list(unique_positions))
+    
+    for task_id, task_info in enumerate(task_infos, start=1):
+        task_name = task_info.get('task_name', f'task{task_id}')
+        
+        # Get the goal for this task
+        cur_task = task_info
+        goal = None
+        for key in ('goal', 'goal_xy', 'goal_oracle_rep'):
+            if key in cur_task and cur_task[key] is not None:
+                goal = np.asarray(cur_task[key])
+                if goal.ndim > 1:
+                    goal = goal[0]
+                break
+        
+        if 'goal_ij' in cur_task and hasattr(env.unwrapped, 'ij_to_xy'):
+            goal = np.asarray(env.unwrapped.ij_to_xy(cur_task['goal_ij']))
+        
+        if goal is None:
+            continue
+            
+        # Compute value for each position
+        positions_jax = jnp.array(positions)
+        goal_batch = jnp.repeat(jnp.array(goal)[None], len(positions), axis=0)
+        values = agent.network.select('value')(positions_jax, goals=goal_batch)
+        
+        if agent.config['critic_loss_type'] == 'bce':
+            values = jax.nn.sigmoid(values)
+        
+        # Create heatmap data
+        value_dict = {}
+        for i, pos in enumerate(positions):
+            value_dict[(pos[0], pos[1])] = float(values[i])
+        
+        # Plot heatmap
+        fig_name = plot_heatmap(value_dict, save_dir=save_dir, title=f'Value Function - {task_name}')
+        heatmap_logs[f'value_heatmap/{task_name}'] = wandb.Image(fig_name)
+        fig_files.append(fig_name)
+    
+    return heatmap_logs, fig_files
 
 
 def _evaluate(agent, config, env, prefix=''):
@@ -204,62 +297,6 @@ def _evaluate(agent, config, env, prefix=''):
         return eval_metrics
 
 
-def _get_env_current_task(env):
-    candidates = [env]
-    if hasattr(env, 'unwrapped'):
-        candidates.append(env.unwrapped)
-
-    for candidate in candidates:
-        cur_task = getattr(candidate, 'cur_task', None)
-        if cur_task is not None:
-            return cur_task
-
-    for candidate in candidates:
-        cur_task_id = getattr(candidate, 'cur_task_id', None)
-        task_infos = getattr(candidate, 'task_infos', None)
-        if cur_task_id is not None and task_infos is not None:
-            return task_infos[cur_task_id - 1]
-
-    return None
-
-
-def _get_task_goal(env):
-    cur_task = _get_env_current_task(env)
-    if cur_task is None:
-        raise ValueError('Environment does not expose a current task goal.')
-
-    for key in ('goal', 'goal_xy', 'goal_oracle_rep'):
-        if key in cur_task and cur_task[key] is not None:
-            goal = np.asarray(cur_task[key])
-            if goal.ndim > 1:
-                goal = goal[0]
-            return goal
-
-    if 'goal_ij' in cur_task and hasattr(env.unwrapped, 'ij_to_xy'):
-        return np.asarray(env.unwrapped.ij_to_xy(cur_task['goal_ij']))
-
-    raise ValueError('Current task does not expose a usable fixed goal.')
-
-
-def _sample_triangle_subgoal(agent, observation, goal, rng):
-    observation = np.asarray(observation)
-    goal = np.asarray(goal)
-
-    observations = np.repeat(observation[None], FLAGS.num_subgoal_candidates, axis=0)
-    goals = np.repeat(goal[None], FLAGS.num_subgoal_candidates, axis=0)
-    subgoals = np.asarray(agent.propose_goals(observations, goals, rng))
-
-    dists_to_subgoal = np.asarray(agent.compute_dynamical_distance(observations, subgoals))
-    dists_to_goal = np.asarray(agent.compute_dynamical_distance(subgoals, goals))
-    default_dist = np.asarray(agent.compute_dynamical_distance(observations, goals))
-    triangle_mask = (dists_to_goal + dists_to_subgoal - default_dist) < FLAGS.triangle_threshold
-    filtered_subgoals = subgoals[triangle_mask]
-    if len(filtered_subgoals) == 0:
-        filtered_subgoals = subgoals
-
-    filtered_goals = np.repeat(goal[None], len(filtered_subgoals), axis=0)
-    values = np.asarray(agent.network.select('value')(filtered_subgoals, goals=filtered_goals))
-    return filtered_subgoals[int(np.argmax(values))]
 def _train_step(
     *,
     agent,
@@ -293,8 +330,17 @@ def _train_step(
         train_metrics['time/epoch_time'] = (time.time() - last_time) / FLAGS.log_interval
         train_metrics['time/total_time'] = time.time() - first_time
         last_time = time.time()
-        wandb.log(train_metrics, step=global_step)
+        
+        # Log value function heatmaps
+        heatmap_logs, fig_files = _log_value_heatmaps(agent, env, train_dataset, FLAGS.save_dir, global_step)
+        
+        wandb.log({**train_metrics, **heatmap_logs}, step=global_step)
         train_logger.log(train_metrics, step=global_step)
+        
+        # Clean up heatmap files after logging
+        for fig_file in fig_files:
+            if os.path.exists(fig_file):
+                os.remove(fig_file)
 
     if FLAGS.eval_interval != 0 and (global_step == 1 or global_step % FLAGS.eval_interval == 0):
         eval_metrics = _evaluate(agent, config, env, prefix=prefix)
@@ -402,9 +448,8 @@ def main(_):
     ##=========== END SET-UP ===========##
 
     ##=========== CREATE ENV, DATA ===========##
-    total_steps = FLAGS.offline_steps + FLAGS.collection_steps + FLAGS.further_offline_steps
+    total_steps = FLAGS.offline_steps
     config = FLAGS.agent
-    further_training_start = FLAGS.offline_steps + FLAGS.collection_steps
 
     global_step_file = pathlib.Path(FLAGS.save_dir) / 'global_step'
     rbsize_file = pathlib.Path(FLAGS.save_dir) / 'rbsize'
@@ -424,7 +469,7 @@ def main(_):
 
         np.random.seed(FLAGS.seed)
         dataset_path = pathlib.Path(FLAGS.save_dir) / f'data-{global_step}.npz'
-        env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=str(dataset_path), use_oracle_reps=True)
+        env, train_dataset, val_dataset = make_env_and_datasets(FLAGS.env_name, dataset_path=str(dataset_path), use_oracle_reps=True)
 
         train_dataset_data = _load_npz_dict(dataset_path)
         val_dataset_data = _load_npz_dict(pathlib.Path(FLAGS.save_dir) / f'data-{global_step}-val.npz')
@@ -440,11 +485,6 @@ def main(_):
         if global_step < FLAGS.offline_steps:
             train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
             eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
-            first_time = time.time()
-            last_time = time.time()
-        elif further_training_start <= global_step:
-            train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))
-            eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval_further.csv'))
             first_time = time.time()
             last_time = time.time()
     else:
@@ -474,7 +514,6 @@ def main(_):
 
     ##=========== MAIN LOOP ===========##
     with tqdm.tqdm(total=total_steps, initial=global_step) as pbar:
-        collection_state = None
         while global_step < total_steps:
             if global_step < FLAGS.offline_steps:
                 if global_step == 0:
@@ -504,232 +543,8 @@ def main(_):
                     train_logger.close()
                     eval_logger.close()
 
-            if FLAGS.offline_steps <= global_step < further_training_start:
-                if collection_state is None:
-                    if restored_rbsize is not None:
-                        rbsize = restored_rbsize
-                    else:
-                        train_dataset_size = train_dataset.size
-                        rbsize = train_dataset.size + FLAGS.collection_steps
-                    if not isinstance(train_dataset, ReplayBuffer):
-                        train_dataset = ReplayBuffer.create_from_initial_dataset(dict(_dataset_mapping(train_dataset)), rbsize)
-
-                    if restored_replaybuffer_pointer is not None:
-                        current_size = min(restored_replaybuffer_pointer, rbsize)
-                    else:
-                        current_size = train_dataset_size
-                    train_dataset.pointer = current_size
-                    train_dataset.size = current_size
-
-
-                    env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx], use_oracle_reps=True)
-
-                    ob, reset_info = env.reset()
-
-                    curr_rng, rng = jax.random.split(rng)
-                    del reset_info
-                    goal = _get_task_goal(env)
-
-                    subgoal = _sample_triangle_subgoal(agent, ob, goal, curr_rng)
-                    subgoal_steps = 0
-
-                    done = False
-
-                    stats = get_statistics_class(FLAGS.env_name)(env=env)
-                    data_to_plot = {}
-
-                    dataset_for_plot = _dataset_mapping(train_dataset)
-                    floored = np.floor(dataset_for_plot['oracle_reps'])
-                    for i in range(len(floored)):
-                        rounded = (floored[i][0], floored[i][1])
-                        if rounded in data_to_plot:
-                            data_to_plot[rounded] += 1
-                        else:
-                            data_to_plot[rounded] = 1
-
-                    fig_name = plot_heatmap(data_to_plot, save_dir=FLAGS.save_dir)
-                    wandb.log({'data_collection/data_viz': wandb.Image(fig_name)}, step=global_step)
-                    print(f'Plotted data to {fig_name}')
-                    os.remove(fig_name)
-                    
-                    new_data_to_plot = {k: 0 for k in data_to_plot}
-                    collection_state = dict(
-                        ob=ob,
-                        goal=goal,
-                        subgoal=subgoal,
-                        subgoal_steps=0,
-                        done=done,
-                        stats=stats,
-                        data_to_plot=data_to_plot,
-                        new_data_to_plot=new_data_to_plot,
-                        env=env
-                    )
-                else:
-                    ob = collection_state['ob']
-                    goal = collection_state['goal']
-                    subgoal = collection_state['subgoal']
-                    subgoal_steps = collection_state['subgoal_steps']
-                    done = collection_state['done']
-                    stats = collection_state['stats']
-                    data_to_plot = collection_state['data_to_plot']
-                    new_data_to_plot = collection_state['new_data_to_plot']
-                    env = collection_state['env']
-
-                curr_rng, rng = jax.random.split(rng)
-                action = agent.sample_actions(
-                    observations=ob,
-                    goals=subgoal,
-                    seed=curr_rng,
-                )
-                action = np.clip(action, -1, 1)
-                next_ob, reward, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-
-                tran = dict(
-                    observations=ob,
-                    actions=action,
-                    terminals=float(done),
-                    next_observations=next_ob,
-                    qpos=info['qpos'],
-                    qvel=info['qvel'],
-                    oracle_reps=to_oracle_rep(obs=ob[None], env=env)[0],
-                    # masks=1.0 - terminated,
-                    # rewards=reward
-                )
-
-                train_dataset.add_transition(tran)
-                stats.log_episode(tran['observations'], tran['actions'])
-                rounded = (np.floor(ob[0]), np.floor(ob[1])) # TODO: make this generalizable
-                if rounded in data_to_plot:
-                    data_to_plot[rounded] += 1
-                    new_data_to_plot[rounded] += 1
-                else:
-                    data_to_plot[rounded] = 1
-                    new_data_to_plot[rounded] = 1
-
-                global_step += 1
-                pbar.update(1)
-                _maybe_checkpoint(
-                    agent,
-                    train_dataset,
-                    val_dataset,
-                    FLAGS.save_dir,
-                    global_step,
-                    train_logger,
-                    eval_logger,
-                )
-
-                next_collection_ob = next_ob
-                next_goal = goal
-                subgoal_steps += 1
-                next_subgoal_dist = float(
-                    np.asarray(
-                        agent.compute_dynamical_distance(
-                            np.asarray(next_ob)[None], np.asarray(subgoal)[None]
-                        )
-                    )[0]
-                )
-                subgoal_done = next_subgoal_dist <= FLAGS.subgoal_reached_distance
-                subgoal_timed_out = subgoal_steps >= FLAGS.steps_toward_sg
-
-                if done:
-                    next_collection_ob, reset_info = env.reset()
-                    del reset_info
-                    next_goal = _get_task_goal(env)
-                    curr_rng, rng = jax.random.split(rng)
-                    subgoal = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng)
-                    subgoal_steps = 0
-                elif subgoal_done or subgoal_timed_out:
-                    curr_rng, rng = jax.random.split(rng)
-                    subgoal = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng)
-                    subgoal_steps = 0
-
-                collection_state['ob'] = next_collection_ob
-                collection_state['goal'] = next_goal
-                collection_state['subgoal'] = subgoal
-                collection_state['subgoal_steps'] = subgoal_steps
-                collection_state['done'] = done
-
-                if global_step % FLAGS.log_interval == 0:
-                    for k, v in stats.get_statistics().items():
-                        wandb.log({f'data_collection/{k}': v}, step=global_step)
-
-                if global_step % FLAGS.data_plot_interval == 0:
-                    fig_name = plot_heatmap(data_to_plot, save_dir=FLAGS.save_dir)
-                    # TODO: plot heatmap
-                    wandb.log({'data_collection/data_viz': wandb.Image(fig_name)}, step=global_step)
-                    print(f'Plotted data to {fig_name}')
-                    os.remove(fig_name)
-
-                    fig_name = plot_heatmap(new_data_to_plot, save_dir=FLAGS.save_dir)
-                    # TODO: plot heatmap
-                    wandb.log({'data_collection/new_data_viz': wandb.Image(fig_name)}, step=global_step)
-                    print(f'Plotted data to {fig_name}')
-                    os.remove(fig_name)
-
-                if global_step % FLAGS.save_interval == 0:
-                    _save_agent_and_datasets(
-                        agent,
-                        train_dataset,
-                        val_dataset,
-                        FLAGS.save_dir,
-                        global_step,
-                        global_step_file=global_step_file,
-                    )
-
-            if further_training_start <= global_step:
-
-                if global_step == further_training_start:
-                    fql_config = FLAGS.fql_agent
-                    train_dataset['terminals'][train_dataset.size - 1] = 1.0
-                    
-                    # train_dataset = _wrap_goal_conditioned_dataset(train_dataset, fql_config)
-                    datasets = [file for file in sorted(glob.glob(f'{FLAGS.dataset_dir}/*.npz')) if '-val.npz' not in file]
-                    dataset_idx = 0
-
-                    # env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=datasets[dataset_idx], use_oracle_reps=True)
-                    print(f'new replay buffer size: {train_dataset.size}')
-                    from flax.core import unfreeze
-                    train_dataset = unfreeze(train_dataset)
-                    relabel_dataset(FLAGS.env_name, env, train_dataset)
-                    train_dataset = Dataset.create(**train_dataset, freeze=False)
-
-                    example_batch = train_dataset.sample(1)
-                    agent = _create_agent(fql_config['agent_name'], FLAGS.seed, example_batch, fql_config)
-
-                    print(agent.config, file=sys.stderr)
-
-                    train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train_further.csv'))
-                    eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval_further.csv'))
-                    first_time = time.time()
-                    last_time = time.time()
-                    print(f'Beginning further training for {FLAGS.further_offline_steps} steps', file=sys.stderr)
-
-                agent, global_step, last_time = _train_step(
-                    agent=agent,
-                    train_dataset=train_dataset,
-                    val_dataset=val_dataset,
-                    config=fql_config,
-                    env=env,
-                    global_step=global_step,
-                    pbar=pbar,
-                    first_time=first_time,
-                    last_time=last_time,
-                    train_logger=train_logger,
-                    eval_logger=eval_logger,
-                    save_dir=FLAGS.save_dir,
-                    global_step_file=global_step_file,
-                    prefix='further'
-                )
-
-                if global_step == total_steps:
-                    train_logger.close()
-                    eval_logger.close()
-                    if FLAGS.cleanup:
-                        _cleanup_checkpoints(FLAGS.save_dir)
-
             run_metrics = {'global_step': global_step}
-            train_dataset_size = train_dataset.size
+            train_dataset_size = _get_train_dataset_size(train_dataset)
             if train_dataset_size is not None:
                 run_metrics['data/train_dataset_size'] = train_dataset_size
             wandb.log(run_metrics, step=global_step)

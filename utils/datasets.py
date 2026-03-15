@@ -168,7 +168,6 @@ class ReplayBuffer(Dataset):
                 buffer[idx] = new_element
 
             single_transition = jax.tree_util.tree_map(lambda x: x[0], transitions)
-            import ipdb; ipdb.set_trace()
             jax.tree_util.tree_map(set_idx, self._dict, single_transition)
         # self.add_transitions(transitions)
 

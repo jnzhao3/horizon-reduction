@@ -259,7 +259,7 @@ def _sample_triangle_subgoal(agent, observation, goal, rng):
 
     filtered_goals = np.repeat(goal[None], len(filtered_subgoals), axis=0)
     values = np.asarray(agent.network.select('value')(filtered_subgoals, goals=filtered_goals))
-    return filtered_subgoals[int(np.argmax(values))]
+    return filtered_subgoals[int(np.argmax(values))], len(filtered_goals)
 def _train_step(
     *,
     agent,
@@ -530,7 +530,8 @@ def main(_):
                     del reset_info
                     goal = _get_task_goal(env)
 
-                    subgoal = _sample_triangle_subgoal(agent, ob, goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng)
+                    filtered_goals_sizes.append(filtered_size)
                     subgoal_steps = 0
 
                     done = False
@@ -553,6 +554,9 @@ def main(_):
                     os.remove(fig_name)
                     
                     new_data_to_plot = {k: 0 for k in data_to_plot}
+                    selected_subgoals = {}
+                    rounded_subgoal = (np.floor(subgoal[0]), np.floor(subgoal[1]))
+                    selected_subgoals[rounded_subgoal] = selected_subgoals.get(rounded_subgoal, 0) + 1
                     collection_state = dict(
                         ob=ob,
                         goal=goal,
@@ -562,6 +566,10 @@ def main(_):
                         stats=stats,
                         data_to_plot=data_to_plot,
                         new_data_to_plot=new_data_to_plot,
+                        selected_subgoals=selected_subgoals,
+                        total_subgoals=1,
+                        reached_subgoals=0,
+                        filtered_goals_sizes=[],
                         env=env
                     )
                 else:
@@ -573,6 +581,10 @@ def main(_):
                     stats = collection_state['stats']
                     data_to_plot = collection_state['data_to_plot']
                     new_data_to_plot = collection_state['new_data_to_plot']
+                    selected_subgoals = collection_state.get('selected_subgoals', {})
+                    total_subgoals = collection_state.get('total_subgoals', 0)
+                    reached_subgoals = collection_state.get('reached_subgoals', 0)
+                    filtered_goals_sizes = collection_state.get('filtered_goals_sizes', [])
                     env = collection_state['env']
 
                 curr_rng, rng = jax.random.split(rng)
@@ -637,11 +649,19 @@ def main(_):
                     del reset_info
                     next_goal = _get_task_goal(env)
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng)
+                    filtered_goals_sizes.append(filtered_size)
+                    total_subgoals += 1
                     subgoal_steps = 0
                 elif subgoal_done or subgoal_timed_out:
+                    if subgoal_done:
+                        reached_subgoals += 1
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng)
+                    filtered_goals_sizes.append(filtered_size)
+                    rounded_subgoal = (np.floor(subgoal[0]), np.floor(subgoal[1]))
+                    selected_subgoals[rounded_subgoal] = selected_subgoals.get(rounded_subgoal, 0) + 1
+                    total_subgoals += 1
                     subgoal_steps = 0
 
                 collection_state['ob'] = next_collection_ob
@@ -649,10 +669,20 @@ def main(_):
                 collection_state['subgoal'] = subgoal
                 collection_state['subgoal_steps'] = subgoal_steps
                 collection_state['done'] = done
+                collection_state['selected_subgoals'] = selected_subgoals
+                collection_state['total_subgoals'] = total_subgoals
+                collection_state['reached_subgoals'] = reached_subgoals
+                collection_state['filtered_goals_sizes'] = filtered_goals_sizes
 
                 if global_step % FLAGS.log_interval == 0:
                     for k, v in stats.get_statistics().items():
                         wandb.log({f'data_collection/{k}': v}, step=global_step)
+                    if total_subgoals > 0:
+                        subgoal_reach_fraction = reached_subgoals / total_subgoals
+                        wandb.log({'data_collection/subgoal_reach_fraction': subgoal_reach_fraction}, step=global_step)
+                    if filtered_goals_sizes:
+                        avg_filtered_goals_size = sum(filtered_goals_sizes) / len(filtered_goals_sizes)
+                        wandb.log({'data_collection/avg_filtered_goals_size': avg_filtered_goals_size}, step=global_step)
 
                 if global_step % FLAGS.data_plot_interval == 0:
                     fig_name = plot_heatmap(data_to_plot, save_dir=FLAGS.save_dir)
@@ -665,6 +695,11 @@ def main(_):
                     # TODO: plot heatmap
                     wandb.log({'data_collection/new_data_viz': wandb.Image(fig_name)}, step=global_step)
                     print(f'Plotted data to {fig_name}')
+                    os.remove(fig_name)
+
+                    fig_name = plot_heatmap(selected_subgoals, save_dir=FLAGS.save_dir)
+                    wandb.log({'data_collection/selected_subgoals_viz': wandb.Image(fig_name)}, step=global_step)
+                    print(f'Plotted selected subgoals to {fig_name}')
                     os.remove(fig_name)
 
                 if global_step % FLAGS.save_interval == 0:

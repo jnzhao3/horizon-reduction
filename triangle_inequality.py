@@ -530,6 +530,7 @@ def main(_):
                     del reset_info
                     goal = _get_task_goal(env)
 
+                    filtered_goals_sizes = []
                     subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng)
                     filtered_goals_sizes.append(filtered_size)
                     subgoal_steps = 0
@@ -569,7 +570,7 @@ def main(_):
                         selected_subgoals=selected_subgoals,
                         total_subgoals=1,
                         reached_subgoals=0,
-                        filtered_goals_sizes=[],
+                        filtered_goals_sizes=filtered_goals_sizes,
                         env=env
                     )
                 else:

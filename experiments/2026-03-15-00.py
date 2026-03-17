@@ -12,7 +12,7 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-03-15-00"
+run_group = "2026-03-15-01"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)

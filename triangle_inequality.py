@@ -55,6 +55,7 @@ flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
 flags.DEFINE_bool('cleanup', False, 'If true, delete saved data and weight checkpoints at run end.')
 flags.DEFINE_integer('steps_toward_sg', 100, 'Number of environment steps allocated to each subgoal before resampling.')
 flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
+flags.DEFINE_bool('use_triangle', True, 'Whether to use triangle inequality filtering for subgoals.')
 flags.DEFINE_float('triangle_threshold', 0.0, 'Slack allowed in the triangle-inequality filter.')
 flags.DEFINE_float('subgoal_reached_distance', 1.0, 'Dynamical-distance threshold for considering a subgoal reached.')
 
@@ -103,7 +104,7 @@ def _write_replaybuffer_state_atomically(save_dir, train_dataset):
     _write_int_atomically(save_dir, 'replaybuffer_pointer', train_dataset.pointer)
 
 
-def _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global_step, global_step_file=None):
+def _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global_step, global_step_file=None, collection_state=None):
     save_agent(agent, save_dir, global_step)
     np.savez(os.path.join(save_dir, f'data-{global_step}.npz'), **_dataset_mapping(train_dataset))
     np.savez(os.path.join(save_dir, f'data-{global_step}-val.npz'), **_dataset_mapping(val_dataset))
@@ -112,11 +113,17 @@ def _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global
     if isinstance(train_dataset, ReplayBuffer):
         pathlib.Path(save_dir, 'rbsize').write_text(str(train_dataset.max_size))
         pathlib.Path(save_dir, 'replaybuffer_pointer').write_text(str(train_dataset.pointer))
+    if collection_state is not None:
+        import pickle
+        collection_state_to_save = collection_state.copy()
+        collection_state_to_save['env'] = None  # Don't save env
+        with open(os.path.join(save_dir, f'collection_state-{global_step}.pkl'), 'wb') as f:
+            pickle.dump(collection_state_to_save, f)
 
 
 def _cleanup_checkpoints(save_dir):
     removed = []
-    for pattern in ('params_*.pkl', 'data-*.npz'):
+    for pattern in ('params_*.pkl', 'data-*.npz', 'collection_state-*.pkl'):
         for path in pathlib.Path(save_dir).glob(pattern):
             if path.is_file():
                 path.unlink()
@@ -139,7 +146,7 @@ def _wrap_goal_conditioned_dataset(dataset, config):
     return GCDataset(dataset, config)
 
 
-def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, train_logger, eval_logger):
+def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, train_logger, eval_logger, collection_state=None):
     if PREEMPTED['flag']:
         checkpoint_and_exit(
             agent,
@@ -149,6 +156,7 @@ def _maybe_checkpoint(agent, train_dataset, val_dataset, save_dir, global_step, 
             global_step,
             train_logger,
             eval_logger,
+            collection_state=collection_state,
             reason='signal',
         )
 
@@ -241,7 +249,7 @@ def _get_task_goal(env):
     raise ValueError('Current task does not expose a usable fixed goal.')
 
 
-def _sample_triangle_subgoal(agent, observation, goal, rng):
+def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True):
     observation = np.asarray(observation)
     goal = np.asarray(goal)
 
@@ -249,12 +257,16 @@ def _sample_triangle_subgoal(agent, observation, goal, rng):
     goals = np.repeat(goal[None], FLAGS.num_subgoal_candidates, axis=0)
     subgoals = np.asarray(agent.propose_goals(observations, goals, rng))
 
-    dists_to_subgoal = np.asarray(agent.compute_dynamical_distance(observations, subgoals))
-    dists_to_goal = np.asarray(agent.compute_dynamical_distance(subgoals, goals))
-    default_dist = np.asarray(agent.compute_dynamical_distance(observations, goals))
-    triangle_mask = (dists_to_goal + dists_to_subgoal - default_dist) < FLAGS.triangle_threshold
-    filtered_subgoals = subgoals[triangle_mask]
-    if len(filtered_subgoals) == 0:
+    if use_triangle:
+        dists_to_subgoal = np.asarray(agent.compute_dynamical_distance(observations, subgoals))
+        dists_to_goal = np.asarray(agent.compute_dynamical_distance(subgoals, goals))
+        default_dist = np.asarray(agent.compute_dynamical_distance(observations, goals))
+        triangle_mask = (dists_to_goal + dists_to_subgoal - default_dist) < FLAGS.triangle_threshold
+        filtered_subgoals = subgoals[triangle_mask]
+        if len(filtered_subgoals) == 0:
+            filtered_subgoals = subgoals
+
+    else:
         filtered_subgoals = subgoals
 
     filtered_goals = np.repeat(goal[None], len(filtered_subgoals), axis=0)
@@ -332,10 +344,11 @@ def checkpoint_and_exit(
     global_step,
     train_logger=None,
     eval_logger=None,
+    collection_state=None,
     *,
     reason='preempt',
 ):
-    _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global_step)
+    _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global_step, collection_state=collection_state)
 
     if train_logger:
         train_logger.close()
@@ -437,6 +450,18 @@ def main(_):
         print(agent.config, file=sys.stderr)
         agent = restore_agent(agent, FLAGS.save_dir, global_step)
 
+        collection_state = None
+        if FLAGS.offline_steps <= global_step < further_training_start:
+            collection_state_path = pathlib.Path(FLAGS.save_dir) / f'collection_state-{global_step}.pkl'
+            if collection_state_path.exists():
+                import pickle
+                with open(collection_state_path, 'rb') as f:
+                    collection_state = pickle.load(f)
+                # Recreate env
+                env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=str(dataset_path), use_oracle_reps=True)
+                collection_state['env'] = env
+                print(f'Loaded collection_state from {collection_state_path}')
+
         if global_step < FLAGS.offline_steps:
             train_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'train.csv'))
             eval_logger = CsvLogger(os.path.join(FLAGS.save_dir, 'eval.csv'))
@@ -474,7 +499,6 @@ def main(_):
 
     ##=========== MAIN LOOP ===========##
     with tqdm.tqdm(total=total_steps, initial=global_step) as pbar:
-        collection_state = None
         while global_step < total_steps:
             if global_step < FLAGS.offline_steps:
                 if global_step == 0:
@@ -531,7 +555,7 @@ def main(_):
                     goal = _get_task_goal(env)
 
                     filtered_goals_sizes = []
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng, FLAGS.use_triangle)
                     filtered_goals_sizes.append(filtered_size)
                     subgoal_steps = 0
 
@@ -632,6 +656,7 @@ def main(_):
                     global_step,
                     train_logger,
                     eval_logger,
+                    collection_state=collection_state,
                 )
 
                 next_collection_ob = next_ob
@@ -652,7 +677,7 @@ def main(_):
                     del reset_info
                     next_goal = _get_task_goal(env)
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng, FLAGS.use_triangle)
                     filtered_goals_sizes.append(filtered_size)
                     total_subgoals += 1
                     subgoal_steps = 0
@@ -660,7 +685,7 @@ def main(_):
                     if subgoal_done:
                         reached_subgoals += 1
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng, FLAGS.use_triangle)
                     filtered_goals_sizes.append(filtered_size)
                     rounded_subgoal = (np.floor(subgoal[0]), np.floor(subgoal[1]))
                     selected_subgoals[rounded_subgoal] = selected_subgoals.get(rounded_subgoal, 0) + 1

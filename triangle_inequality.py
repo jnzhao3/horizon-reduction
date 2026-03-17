@@ -573,6 +573,8 @@ def main(_):
                         filtered_goals_sizes=filtered_goals_sizes,
                         env=env
                     )
+                    total_subgoals = 1
+                    reached_subgoals = 0
                 else:
                     ob = collection_state['ob']
                     goal = collection_state['goal']

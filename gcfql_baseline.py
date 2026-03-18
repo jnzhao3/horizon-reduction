@@ -389,6 +389,8 @@ def main(_):
     restored_rbsize = None
     restored_replaybuffer_pointer = None
 
+    init_ij_idx = int(FLAGS.env_name.split('-')[-2][-1]) + 1
+
     if global_step_file.exists() and int(global_step_file.read_text().strip()) > 0:
         global_step = int(global_step_file.read_text().strip())
         print(f'Restoring from epoch {global_step}')
@@ -496,9 +498,14 @@ def main(_):
                     train_dataset.pointer = current_size
                     train_dataset.size = current_size
 
-                    ob, reset_info = env.reset()
+                    import ipdb; ipdb.set_trace()
                     # goal = reset_info.get('goal')
                     goal = train_dataset.sample(1)['oracle_reps'][0]
+                    goal_ij = env.unwrapped.xy_to_ij(goal)
+                    
+                    ob, reset_info = env.reset(
+                        options=dict(task_info=dict(init_ij=env.task_infos[init_ij_idx]['init_ij'], goal_ij=goal_ij))
+                    )
                     print(f'global_step: {global_step}, goal: {goal}', file=sys.stderr)
                     done = False
 
@@ -581,9 +588,13 @@ def main(_):
                 )
 
                 if done:
-                    ob, reset_info = env.reset()
-                    # goal = reset_info.get('goal')
+                    import ipdb; ipdb.set_trace()
                     goal = train_dataset.sample(1)['oracle_reps'][0]
+                    goal_ij = env.unwrapped.xy_to_ij(goal)
+                    
+                    ob, reset_info = env.reset(
+                        options=dict(task_info=dict(init_ij=env.task_infos[init_ij_idx]['init_ij'], goal_ij=goal_ij))
+                    )
                     print(f'global_step: {global_step}, goal: {goal}', file=sys.stderr)
                 else:
                     ob = next_ob

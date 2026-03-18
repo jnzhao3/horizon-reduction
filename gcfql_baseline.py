@@ -498,7 +498,6 @@ def main(_):
                     train_dataset.pointer = current_size
                     train_dataset.size = current_size
 
-                    import ipdb; ipdb.set_trace()
                     # goal = reset_info.get('goal')
                     goal = train_dataset.sample(1)['oracle_reps'][0]
                     goal_ij = env.unwrapped.xy_to_ij(goal)
@@ -588,7 +587,6 @@ def main(_):
                 )
 
                 if done:
-                    import ipdb; ipdb.set_trace()
                     goal = train_dataset.sample(1)['oracle_reps'][0]
                     goal_ij = env.unwrapped.xy_to_ij(goal)
                     

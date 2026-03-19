@@ -54,10 +54,16 @@ flags.DEFINE_integer('collection_steps', 1000000, 'Number of data collection ste
 flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
 flags.DEFINE_bool('cleanup', False, 'If true, delete saved data and weight checkpoints at run end.')
 flags.DEFINE_integer('steps_toward_sg', 100, 'Number of environment steps allocated to each subgoal before resampling.')
+flags.DEFINE_float('subgoal_reached_distance', 0.1, 'Distance threshold to consider subgoal reached.')
 flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
 flags.DEFINE_bool('use_triangle', True, 'Whether to use triangle inequality filtering for subgoals.')
-flags.DEFINE_float('triangle_threshold', 0.0, 'Slack allowed in the triangle-inequality filter.')
-flags.DEFINE_float('subgoal_reached_distance', 1.0, 'Dynamical-distance threshold for considering a subgoal reached.')
+flags.DEFINE_float('triangle_threshold', 0.1, 'Slack allowed in the triangle-inequality filter.')
+flags.DEFINE_bool('use_rnd_bonus', False, 'Whether to use RND bonus for subgoal selection.')
+flags.DEFINE_float('rnd_bonus_weight', 1.0, 'Weight for RND bonus in value function.')
+flags.DEFINE_integer('rnd_update_freq', 100, 'Frequency to update RND network during collection.')
+flags.DEFINE_float('rnd_lr', 3e-4, 'Learning rate for RND.')
+flags.DEFINE_float('rnd_coeff', 1.0, 'Coefficient for RND reward.')
+flags.DEFINE_list('rnd_hidden_dims', [512, 512, 512], 'Hidden dimensions for RND.')
 
 ##=========== EVALUATION HYPERPARAMETERS ===========##
 flags.DEFINE_integer('eval_episodes', 10, 'Number of episodes for each task.')
@@ -117,13 +123,17 @@ def _save_agent_and_datasets(agent, train_dataset, val_dataset, save_dir, global
         import pickle
         collection_state_to_save = collection_state.copy()
         collection_state_to_save['env'] = None  # Don't save env
+        if 'rnd_agent' in collection_state_to_save and collection_state_to_save['rnd_agent'] is not None:
+            # Save RND agent separately
+            save_agent(collection_state_to_save['rnd_agent'], save_dir, global_step, prefix='rnd_')
+            collection_state_to_save['rnd_agent'] = None  # Don't pickle the agent
         with open(os.path.join(save_dir, f'collection_state-{global_step}.pkl'), 'wb') as f:
             pickle.dump(collection_state_to_save, f)
 
 
 def _cleanup_checkpoints(save_dir):
     removed = []
-    for pattern in ('params_*.pkl', 'data-*.npz', 'collection_state-*.pkl'):
+    for pattern in ('params_*.pkl', 'rnd_params_*.pkl', 'data-*.npz', 'collection_state-*.pkl'):
         for path in pathlib.Path(save_dir).glob(pattern):
             if path.is_file():
                 path.unlink()
@@ -135,6 +145,15 @@ def _create_agent(agent_name, seed, example_batch, config):
     agent_class = agents[agent_name]
     if agent_name == 'fql':
         return agent_class.create(seed, example_batch['observations'], example_batch['actions'], config)
+    if agent_name == 'rnd':
+        import ml_collections
+        rnd_config = ml_collections.ConfigDict({
+            'agent_name': 'rnd',
+            'lr': FLAGS.rnd_lr,
+            'coeff': FLAGS.rnd_coeff,
+            'hidden_dims': tuple(int(x) for x in FLAGS.rnd_hidden_dims),
+        })
+        return agent_class.create(seed, example_batch['oracle_reps'], example_batch['actions'], rnd_config) # TODO: properly do this part
     return agent_class.create(seed, example_batch, config)
 
 
@@ -249,7 +268,7 @@ def _get_task_goal(env):
     raise ValueError('Current task does not expose a usable fixed goal.')
 
 
-def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True):
+def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True, rnd_agent=None):
     observation = np.asarray(observation)
     goal = np.asarray(goal)
 
@@ -271,6 +290,15 @@ def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True):
 
     filtered_goals = np.repeat(goal[None], len(filtered_subgoals), axis=0)
     values = np.asarray(agent.network.select('value')(filtered_subgoals, goals=filtered_goals))
+
+    if FLAGS.use_rnd_bonus and rnd_agent is not None:
+        import jax.numpy as jnp
+
+        import ipdb; ipdb.set_trace()
+        dummy_actions = jnp.zeros((len(filtered_subgoals), 2))  # Assuming 2D actions for maze
+        bonuses = rnd_agent.get_reward(filtered_subgoals, dummy_actions)
+        values += FLAGS.rnd_bonus_weight * bonuses
+
     return filtered_subgoals[int(np.argmax(values))], len(filtered_goals)
 def _train_step(
     *,
@@ -460,6 +488,11 @@ def main(_):
                 # Recreate env
                 env, _, _ = make_env_and_datasets(FLAGS.env_name, dataset_path=str(dataset_path), use_oracle_reps=True)
                 collection_state['env'] = env
+                # Restore RND agent if it exists
+                if FLAGS.use_rnd_bonus and pathlib.Path(FLAGS.save_dir, f'rnd_params_{global_step}.pkl').exists():
+                    rnd_agent = _create_agent('rnd', FLAGS.seed, example_batch, {'agent_name': 'rnd'})
+                    rnd_agent = restore_agent(rnd_agent, FLAGS.save_dir, global_step, prefix='rnd_')
+                    collection_state['rnd_agent'] = rnd_agent
                 print(f'Loaded collection_state from {collection_state_path}')
 
         if global_step < FLAGS.offline_steps:
@@ -494,6 +527,8 @@ def main(_):
 
         agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, config)
         print(agent.config, file=sys.stderr)
+
+        collection_state = None
 
     ##=========== END CREATE ENV, DATA ===========##
 
@@ -554,9 +589,15 @@ def main(_):
                     del reset_info
                     goal = _get_task_goal(env)
 
+                    rnd_agent = None
+                    if FLAGS.use_rnd_bonus:
+                        rnd_agent = _create_agent('rnd', FLAGS.seed, example_batch, {'agent_name': 'rnd'})
+                        print("Initialized RND agent for bonus computation")
+
                     filtered_goals_sizes = []
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng, FLAGS.use_triangle)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
+                    wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     subgoal_steps = 0
 
                     done = False
@@ -612,6 +653,7 @@ def main(_):
                     total_subgoals = collection_state.get('total_subgoals', 0)
                     reached_subgoals = collection_state.get('reached_subgoals', 0)
                     filtered_goals_sizes = collection_state.get('filtered_goals_sizes', [])
+                    rnd_agent = collection_state.get('rnd_agent', None)
                     env = collection_state['env']
 
                 curr_rng, rng = jax.random.split(rng)
@@ -638,6 +680,12 @@ def main(_):
 
                 train_dataset.add_transition(tran)
                 stats.log_episode(tran['observations'], tran['actions'])
+                
+                # Train RND with newly collected data only
+                if FLAGS.use_rnd_bonus and rnd_agent is not None and global_step % FLAGS.rnd_update_freq == 0:
+                    rnd_batch = {'oracle_reps': np.array([tran['oracle_reps']]), 'actions': np.array([tran['actions']])}
+                    rnd_agent.update(rnd_batch)
+                
                 rounded = (np.floor(ob[0]), np.floor(ob[1])) # TODO: make this generalizable
                 if rounded in data_to_plot:
                     data_to_plot[rounded] += 1
@@ -677,16 +725,18 @@ def main(_):
                     del reset_info
                     next_goal = _get_task_goal(env)
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng, FLAGS.use_triangle)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
+                    wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     total_subgoals += 1
                     subgoal_steps = 0
                 elif subgoal_done or subgoal_timed_out:
                     if subgoal_done:
                         reached_subgoals += 1
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng, FLAGS.use_triangle)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
+                    wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     rounded_subgoal = (np.floor(subgoal[0]), np.floor(subgoal[1]))
                     selected_subgoals[rounded_subgoal] = selected_subgoals.get(rounded_subgoal, 0) + 1
                     total_subgoals += 1
@@ -701,6 +751,8 @@ def main(_):
                 collection_state['total_subgoals'] = total_subgoals
                 collection_state['reached_subgoals'] = reached_subgoals
                 collection_state['filtered_goals_sizes'] = filtered_goals_sizes
+                if FLAGS.use_rnd_bonus:
+                    collection_state['rnd_agent'] = rnd_agent
 
                 if global_step % FLAGS.log_interval == 0:
                     for k, v in stats.get_statistics().items():

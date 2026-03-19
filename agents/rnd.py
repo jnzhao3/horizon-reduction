@@ -99,14 +99,18 @@ class RND(struct.PyTreeNode):
 
     @jax.jit
     def update(self, batch):
+        obs_key = 'oracle_reps' if 'oracle_reps' in batch else 'observations'
+        observations = batch[obs_key]
+        actions = batch['actions']
+        
         def loss_fn(params):
             feats = self.net.apply_fn(
-                {"params": params}, batch["observations"], batch["actions"]
+                {"params": params}, observations, actions
             )
             frozen_feats = self.frozen_net.apply_fn(
                 {"params": self.frozen_net.params},
-                batch["observations"],
-                batch["actions"],
+                observations,
+                actions,
             )
             loss = ((feats - frozen_feats) ** 2.0).mean()
             return loss, {"rnd_loss": loss}

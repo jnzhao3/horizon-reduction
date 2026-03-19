@@ -121,38 +121,7 @@ def _cleanup_checkpoints(save_dir):
 
 
 def _get_train_dataset_size(train_dataset):
-    # if hasattr(train_dataset, 'size'):
-    #     return int(train_dataset.size)
-
-    # dataset = _dataset_mapping(train_dataset)
-    # if isinstance(dataset, dict):
-    #     for key in ('observations', 'actions', 'rewards', 'terminals', 'next_observations'):
-    #         if key in dataset:
-    #             return int(len(dataset[key]))
-    #     if len(dataset) > 0:
-    #         first_value = next(iter(dataset.values()))
-    #         return int(len(first_value))
-
-    # try:
-    #     return int(len(train_dataset))
-    # except TypeError:
-    #     return None
     return train_dataset.size
-
-
-# def _log_prefixed_info(metrics, prefix, global_step):
-#     for k, v in metrics.items():
-#         wandb.log({f'{prefix}/{k}': v}, step=global_step)
-
-
-# def _build_fql_config(base_config):
-#     fql_config = get_fql_config()
-#     if base_config is not None:
-#         for k, v in base_config.items():
-#             if k in fql_config and v is not None:
-#                 fql_config[k] = v
-#     fql_config['agent_name'] = 'fql'
-#     return fql_config
 
 
 def _create_agent(agent_name, seed, example_batch, config):
@@ -389,7 +358,7 @@ def main(_):
     restored_rbsize = None
     restored_replaybuffer_pointer = None
 
-    init_ij_idx = int(FLAGS.env_name.split('-')[-2][-1]) + 1
+    init_ij_idx = int(FLAGS.env_name.split('-')[-2][-1]) - 1
 
     if global_step_file.exists() and int(global_step_file.read_text().strip()) > 0:
         global_step = int(global_step_file.read_text().strip())

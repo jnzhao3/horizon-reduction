@@ -184,7 +184,7 @@ def _evaluate(agent, config, env, prefix=''):
                     video_frame_skip=FLAGS.video_frame_skip,
                 )
     
-    if prefix is not '':
+    if prefix != '':
         new_eval_info = {}
         for k, v in eval_info.items():
             new_eval_info[f'{prefix}{k}'] = v
@@ -219,7 +219,10 @@ def _train_step(
     global_step_file,
     prefix='',
 ):
-    batch = train_dataset.sample(config['batch_size'])
+    if config['action_chunking']:
+        batch = train_dataset.sample_sequence(config['batch_size'], sequence_length=config['horizon_length'], discount=config['discount'])
+    else:
+        batch = train_dataset.sample(config['batch_size'])
     agent, update_info = agent.update(batch)
     global_step += 1
     pbar.update(1)

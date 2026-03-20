@@ -10,9 +10,29 @@ import jax.numpy as jnp
 import ml_collections
 import optax
 from pydantic import AwareDatetime
+from utils.plot_utils import get_block_i_pos_idxs
+# from utils.samplers import to_oracle_rep
 
 from utils.flax_utils import ModuleDict, TrainState, nonpytree_field
 from utils.networks import ActorVectorField, GCValue #, GoalProposalVectorField
+
+def to_oracle_rep(obs, env):
+    env_name = env.spec.id
+    if 'maze' in env_name:
+        # return obs[:2]
+        return obs[:, :2]
+    elif 'cube' in env_name:
+        num_cubes = env.unwrapped.task_infos[0]['init_xyzs'].shape[0]
+
+        ob = []
+        for i in range(num_cubes):
+            pos = get_block_i_pos_idxs(i, num_cubes)
+            # ob.append(obs[pos])
+            ob.append(obs[:, pos])
+            # ob.append((ob_info[f'privileged/block_{i}_pos'] - xyz_center) * xyz_scaler)
+        return jnp.concatenate(jnp.array(ob), axis=-1)
+    else:
+        assert False, 'not implemented'
 
 
 class GCFQLAgent(flax.struct.PyTreeNode):
@@ -298,7 +318,8 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     @jax.jit
     def compute_dynamical_distance(self, states, goals):
-        states = jnp.asarray(states)[..., :2] # TODO: one of these days, change this to not force the oracle representation
+        import ipdb; ipdb.set_trace()
+        states = to_oracle_rep(jnp.asarray(states))
         v = self.network.select('value')(states, goals=goals)
         discount = self.config['discount']
 

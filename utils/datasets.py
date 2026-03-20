@@ -63,6 +63,46 @@ class Dataset(FrozenDict):
         batch = self.get_subset(idxs)
         return batch
 
+    def sample_sequence(self, batch_size, sequence_length, discount):
+        idxs = np.random.randint(self.size - sequence_length + 1, size=batch_size)
+        
+        data = {k: v[idxs] for k, v in self.items()}
+
+        rewards = np.zeros(data['rewards'].shape + (sequence_length,), dtype=float)
+        masks = np.ones(data['masks'].shape + (sequence_length,), dtype=float)
+        valid = np.ones(data['masks'].shape + (sequence_length,), dtype=float)
+        observations = np.zeros(data['observations'].shape[:-1] + (sequence_length, data['observations'].shape[-1]), dtype=float)
+        next_observations = np.zeros(data['observations'].shape[:-1] + (sequence_length, data['observations'].shape[-1]), dtype=float)
+        actions = np.zeros(data['actions'].shape[:-1] + (sequence_length, data['actions'].shape[-1]), dtype=float)
+        terminals = np.zeros(data['terminals'].shape + (sequence_length,), dtype=float)
+
+        for i in range(sequence_length):
+            cur_idxs = idxs + i
+
+            if i == 0:
+                rewards[..., 0] = self['rewards'][cur_idxs]
+                masks[..., 0] = self["masks"][cur_idxs]
+                terminals[..., 0] = self["terminals"][cur_idxs]
+            else:
+                valid[..., i] = (1.0 - terminals[..., i - 1])
+                rewards[..., i] = rewards[..., i - 1] + (self['rewards'][cur_idxs] * (discount ** i) * valid[..., i])
+                masks[..., i] = np.minimum(masks[..., i-1], self["masks"][cur_idxs]) * valid[..., i] + masks[..., i-1] * (1. - valid[..., i])
+                terminals[..., i] = np.maximum(terminals[..., i-1], self["terminals"][cur_idxs])
+            
+            actions[..., i, :] = self['actions'][cur_idxs]
+            next_observations[..., i, :] = self['next_observations'][cur_idxs] * valid[..., i:i+1] + next_observations[..., i-1, :] * (1. - valid[..., i:i+1])
+            observations[..., i, :] = self['observations'][cur_idxs]
+            
+        return dict(
+            observations=data['observations'].copy(),
+            actions=actions,
+            masks=masks,
+            rewards=rewards,
+            terminals=terminals,
+            valid=valid,
+            next_observations=next_observations,
+        )
+
     def get_subset(self, idxs):
         """Return a subset of the dataset given the indices."""
         result = jax.tree_util.tree_map(lambda arr: arr[idxs], self._dict)

@@ -12,12 +12,12 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-03-06-03"
+run_group = "2026-03-20-00"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = 'fql_baseline.py'
-priority = 'high'
+priority = 'normal'
 ##=========== END INITIAL INFORMATION ===========##
 
 

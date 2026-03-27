@@ -297,6 +297,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
         new_network, info = self.network.apply_loss_fn(loss_fn=loss_fn)
         self.target_update(new_network, 'critic')
+        # self.target_update(new_network,)
 
         return self.replace(network=new_network, rng=new_rng), info
 
@@ -318,8 +319,8 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     @jax.jit
     def compute_dynamical_distance(self, states, goals):
-        import ipdb; ipdb.set_trace()
-        states = to_oracle_rep(jnp.asarray(states))
+        # states = to_oracle_rep(jnp.asarray(states), env) # TODO: fix this
+        states = jnp.asarray(states)[:, :2]
         v = self.network.select('value')(states, goals=goals)
         discount = self.config['discount']
 

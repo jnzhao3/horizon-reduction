@@ -268,7 +268,7 @@ def _get_task_goal(env):
     raise ValueError('Current task does not expose a usable fixed goal.')
 
 
-def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True, rnd_agent=None):
+def _sample_triangle_subgoal(agent, observation, goal, rng, env, use_triangle=True, rnd_agent=None):
     observation = np.asarray(observation)
     goal = np.asarray(goal)
 
@@ -294,7 +294,6 @@ def _sample_triangle_subgoal(agent, observation, goal, rng, use_triangle=True, r
     if FLAGS.use_rnd_bonus and rnd_agent is not None:
         import jax.numpy as jnp
 
-        import ipdb; ipdb.set_trace()
         dummy_actions = jnp.zeros((len(filtered_subgoals), 2))  # Assuming 2D actions for maze
         bonuses = rnd_agent.get_reward(filtered_subgoals, dummy_actions)
         values += FLAGS.rnd_bonus_weight * bonuses
@@ -595,7 +594,7 @@ def main(_):
                         print("Initialized RND agent for bonus computation")
 
                     filtered_goals_sizes = []
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng, FLAGS.use_triangle, rnd_agent)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, ob, goal, curr_rng, env, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
                     wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     subgoal_steps = 0
@@ -725,7 +724,7 @@ def main(_):
                     del reset_info
                     next_goal = _get_task_goal(env)
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng, FLAGS.use_triangle, rnd_agent)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_collection_ob, next_goal, curr_rng, env, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
                     wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     total_subgoals += 1
@@ -734,7 +733,7 @@ def main(_):
                     if subgoal_done:
                         reached_subgoals += 1
                     curr_rng, rng = jax.random.split(rng)
-                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng, FLAGS.use_triangle, rnd_agent)
+                    subgoal, filtered_size = _sample_triangle_subgoal(agent, next_ob, goal, curr_rng, env, FLAGS.use_triangle, rnd_agent)
                     filtered_goals_sizes.append(filtered_size)
                     wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     rounded_subgoal = (np.floor(subgoal[0]), np.floor(subgoal[1]))

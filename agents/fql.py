@@ -21,17 +21,20 @@ class FQLAgent(flax.struct.PyTreeNode):
 
     def critic_loss(self, batch, grad_params, rng):
         """Compute the FQL critic loss."""
-
-        import ipdb; ipdb.set_trace()
-        batch_actions = jnp.reshape(batch["actions"][..., :self.config['horizon_length'], :],
-             (batch["actions"].shape[0], -1))
+        if self.config['action_chunking']:
+            batch_actions = jnp.reshape(batch["actions"][..., :self.config['horizon_length'], :],
+                (batch["actions"].shape[0], -1))
+        else:
+            batch_actions = batch['actions']
         
         rng, sample_rng = jax.random.split(rng)
         # next_actions = self.sample_actions(batch['next_observations'], seed=sample_rng)
-        next_actions = self.sample_actions(batch['next_observations'][..., -1, :], seed=sample_rng)
+        # next_actions = self.sample_actions(batch['next_observations'][..., -1, :], seed=sample_rng)
+        next_actions = self.sample_actions(batch['next_observations'], seed=sample_rng)
         next_actions = jnp.clip(next_actions, -1, 1)
 
-        next_qs = self.network.select('target_critic')(batch['next_observations'][..., -1, :], actions=next_actions)
+        # next_qs = self.network.select('target_critic')(batch['next_observations'][..., -1, :], actions=next_actions)
+        next_qs = self.network.select('target_critic')(batch['next_observations'], actions=next_actions)
         if self.config['q_agg'] == 'min':
             next_q = next_qs.min(axis=0)
         elif self.config['q_agg'] == 'subtract-0.5x-std':
@@ -41,12 +44,16 @@ class FQLAgent(flax.struct.PyTreeNode):
         else:
             next_q = next_qs.mean(axis=0)
 
-        target_q = batch['rewards'][..., -1] + self.config['discount'] * batch['masks'][..., -1] * next_q
+        target_q = batch['rewards'][..., -1] + self.config['discount'] * batch['masks'] * next_q
+        # target_q = batch['rewards'][..., -1] + self.config['discount'] * batch['masks'][..., -1] * next_q
         # target_q = batch['rewards'][..., -1] + \
             # (self.config['discount'] ** self.config["horizon_length"]) * batch['masks'][..., -1] * next_q
 
         # q = self.network.select('critic')(batch['observations'], actions=batch['actions'], params=grad_params) # TODO: should this be next_actions
-        q = self.network.select('critic')(batch['observations'][..., -1, :], actions=batch_actions, params=grad_params)
+        if self.config['action_chunking']:
+            q = self.network.select('critic')(batch['observations'][..., -1, :], actions=batch_actions, params=grad_params)
+        else:
+            q = self.network.select('critic')(batch['observations'], actions=batch['actions'], params=grad_params)
         critic_loss = jnp.square(q - target_q).mean()
 
         return critic_loss, {
@@ -61,8 +68,11 @@ class FQLAgent(flax.struct.PyTreeNode):
         # batch_size, action_dim = batch['actions'].shape
         # rng, x_rng, t_rng = jax.random.split(rng, 3)
 
-        batch_actions = jnp.reshape(batch["actions"][..., :self.config['horizon_length'], :],
-             (batch["actions"].shape[0], -1))
+        if self.config['action_chunking']:
+            batch_actions = jnp.reshape(batch["actions"][..., :self.config['horizon_length'], :],
+                (batch["actions"].shape[0], -1))
+        else:
+            batch_actions = batch['actions']
         
         batch_size, action_dim = batch_actions.shape
         rng, x_rng, t_rng = jax.random.split(rng, 3)
@@ -74,19 +84,22 @@ class FQLAgent(flax.struct.PyTreeNode):
         x_t = (1 - t) * x_0 + t * x_1
         vel = x_1 - x_0
 
-        pred = self.network.select('actor_bc_flow')(batch['observations'][..., -1, :], x_t, t, params=grad_params)
+        pred = self.network.select('actor_bc_flow')(batch['observations'], x_t, t, params=grad_params)
         bc_flow_loss = jnp.mean((pred - vel) ** 2)
 
         # Distillation loss.
         rng, noise_rng = jax.random.split(rng)
         noises = jax.random.normal(noise_rng, (batch_size, action_dim))
-        target_flow_actions = self.compute_flow_actions(batch['observations'][..., -1, :], noises=noises)
-        actor_actions = self.network.select('actor_onestep_flow')(batch['observations'][..., -1, :], noises, params=grad_params)
+        # target_flow_actions = self.compute_flow_actions(batch['observations'][..., -1, :], noises=noises)
+        target_flow_actions = self.compute_flow_actions(batch['observations'], noises=noises)
+        # actor_actions = self.network.select('actor_onestep_flow')(batch['observations'][..., -1, :], noises, params=grad_params)
+        actor_actions = self.network.select('actor_onestep_flow')(batch['observations'], noises, params=grad_params)
         distill_loss = jnp.mean((actor_actions - target_flow_actions) ** 2)
 
         # Q loss.
         actor_actions = jnp.clip(actor_actions, -1, 1)
-        qs = self.network.select('critic')(batch['observations'][..., -1, :], actions=actor_actions)
+        # qs = self.network.select('critic')(batch['observations'][..., -1, :], actions=actor_actions)
+        qs = self.network.select('critic')(batch['observations'], actions=actor_actions)
         q = jnp.mean(qs, axis=0)
 
         q_loss = -q.mean()
@@ -185,9 +198,8 @@ class FQLAgent(flax.struct.PyTreeNode):
         observations,
         seed=None,
     ):
-        import ipdb; ipdb.set_trace()
-        action_dim = self.config['action_dim'] * \
-                        (self.config['horizon_length'] if self.config["action_chunking"] else 1)
+        action_dim = self.config['action_dim'] # * \
+                        # (self.config['horizon_length'] if self.config["action_chunking"] else 1)
         noises = jax.random.normal(
             seed,
             (
@@ -314,13 +326,12 @@ class FQLAgent(flax.struct.PyTreeNode):
 
         ex_times = ex_actions[..., :1]
         ob_dims = ex_observations.shape[1:]
+        if config["action_chunking"]:
+            ex_actions = jnp.reshape(
+                ex_actions[..., :config["horizon_length"], :],
+                (*ex_actions.shape[:-2], -1),
+            )
         action_dim = ex_actions.shape[-1]
-
-        full_actions = jnp.concatenate([ex_actions] * config["horizon_length"], axis=-1)
-        full_action_dim = full_actions.shape[-1]
-
-        ex_actions = full_actions
-        action_dim = full_action_dim
 
         # Define encoders.
         encoders = dict()

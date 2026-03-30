@@ -53,7 +53,7 @@ flags.DEFINE_integer('save_interval', 100000, 'Saving interval.')
 flags.DEFINE_integer('collection_steps', 1000000, 'Number of data collection steps.')
 flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
 flags.DEFINE_bool('cleanup', False, 'If true, delete saved data and weight checkpoints at run end.')
-flags.DEFINE_integer('steps_toward_sg', 100, 'Number of environment steps allocated to each subgoal before resampling.')
+flags.DEFINE_integer('steps_toward_sg', 200, 'Number of environment steps allocated to each subgoal before resampling.')
 flags.DEFINE_float('subgoal_reached_distance', 0.25, 'Distance threshold to consider subgoal reached.')
 flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
 flags.DEFINE_bool('use_triangle', True, 'Whether to use triangle inequality filtering for subgoals.')
@@ -730,6 +730,10 @@ def main(_):
                     wandb.log({'data_collection/filtered_subgoals_count': filtered_size}, step=global_step)
                     total_subgoals += 1
                     subgoal_steps = 0
+                    if terminated:
+                        wandb.log({'data_collection/goal_reach': 1.0}, step=global_step)
+                    else:
+                        wandb.log({'data_collection/goal_reach': 0.0}, step=global_step)
                 elif subgoal_done or subgoal_timed_out:
                     if subgoal_done:
                         reached_subgoals += 1

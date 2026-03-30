@@ -221,8 +221,11 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         # q_pred = self.network.select('target_critic')(
         #     batch['observations'], goals=batch['value_goals'], actions=batch['actions']
         # )
+        if self.config['use_policy_for_value']:
+            policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
+        else:
+            policy_actions = batch['actions']
 
-        policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
         q_pred = self.network.select('target_critic')(
             batch['observations'], goals=batch['value_goals'], actions=policy_actions
         )
@@ -666,7 +669,8 @@ def get_config():
             subgoal_steps=25, # TODO: does this need to be changed?
             # value_loss_type='squared',
             awr_invtemp=0.0,
-            goal_proposer_type='awr' # awr, default, value-gc, actor-gc
+            goal_proposer_type='awr' # awr, default, value-gc, actor-gc,
+            use_policy_for_value=False # TODO: delete this, eventually
         )
     )
     return config

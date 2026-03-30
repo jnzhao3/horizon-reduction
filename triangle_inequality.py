@@ -54,7 +54,7 @@ flags.DEFINE_integer('collection_steps', 1000000, 'Number of data collection ste
 flags.DEFINE_integer('data_plot_interval', 100000, 'Data plotting interval.')
 flags.DEFINE_bool('cleanup', False, 'If true, delete saved data and weight checkpoints at run end.')
 flags.DEFINE_integer('steps_toward_sg', 100, 'Number of environment steps allocated to each subgoal before resampling.')
-flags.DEFINE_float('subgoal_reached_distance', 0.1, 'Distance threshold to consider subgoal reached.')
+flags.DEFINE_float('subgoal_reached_distance', 0.25, 'Distance threshold to consider subgoal reached.')
 flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
 flags.DEFINE_bool('use_triangle', True, 'Whether to use triangle inequality filtering for subgoals.')
 flags.DEFINE_float('triangle_threshold', 0.1, 'Slack allowed in the triangle-inequality filter.')
@@ -709,14 +709,15 @@ def main(_):
                 next_collection_ob = next_ob
                 next_goal = goal
                 subgoal_steps += 1
-                next_subgoal_dist = float(
-                    np.asarray(
-                        agent.compute_dynamical_distance(
-                            np.asarray(next_ob)[None], np.asarray(subgoal)[None]
-                        )
-                    )[0]
-                )
-                subgoal_done = next_subgoal_dist <= FLAGS.subgoal_reached_distance
+#                next_subgoal_dist = float(
+#                    np.asarray(
+#                        agent.compute_dynamical_distance(
+#                            np.asarray(next_ob)[None], np.asarray(subgoal)[None]
+#                        )
+#                    )[0]
+#                )
+#                subgoal_done = next_subgoal_dist <= FLAGS.subgoal_reached_distance
+                subgoal_done = np.linalg.norm(next_ob[:2] - subgoal[:2]) <= FLAGS.subgoal_reached_distance
                 subgoal_timed_out = subgoal_steps >= FLAGS.steps_toward_sg
 
                 if done:

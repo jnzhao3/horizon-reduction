@@ -214,12 +214,17 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     @jax.jit
     def value_loss(self, batch, grad_params, rng):
-        pred = self.network.select('value')(
-            observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
-        )
+        # pred = self.network.select('value')(
+        #     observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
+        # )
 
+        # q_pred = self.network.select('target_critic')(
+        #     batch['observations'], goals=batch['value_goals'], actions=batch['actions']
+        # )
+
+        policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=...)
         q_pred = self.network.select('target_critic')(
-            batch['observations'], goals=batch['value_goals'], actions=batch['actions']
+            batch['observations'], goals=batch['value_goals'], actions=policy_actions
         )
 
         if self.config['critic_loss_type'] == 'bce':

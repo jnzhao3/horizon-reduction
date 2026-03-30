@@ -669,7 +669,7 @@ def get_config():
             subgoal_steps=25, # TODO: does this need to be changed?
             # value_loss_type='squared',
             awr_invtemp=0.0,
-            goal_proposer_type='awr' # awr, default, value-gc, actor-gc,
+            goal_proposer_type='awr', # awr, default, value-gc, actor-gc,
             use_policy_for_value=False # TODO: delete this, eventually
         )
     )

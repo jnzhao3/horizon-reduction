@@ -54,7 +54,7 @@ class FQLAgent(flax.struct.PyTreeNode):
             q = self.network.select('critic')(batch['observations'][..., -1, :], actions=batch_actions, params=grad_params)
         else:
             q = self.network.select('critic')(batch['observations'], actions=batch['actions'], params=grad_params)
-        critic_loss = jnp.square(q - target_q).mean()
+        critic_loss = jnp.square(q - target_q).mean() # Uses MSE loss
 
         return critic_loss, {
             'critic_loss': critic_loss,

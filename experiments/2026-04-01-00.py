@@ -37,7 +37,7 @@ agent_params = dict(
     },
 )
 
-env_suffix = [f'-singletask-task{i}-v0' for i in range(2,3)] # only with task 2
+env_suffix = [f'-singletask-task{i}-v0' for i in [2, 5]] # only with task 2
 data_suffix = "-v0"
 # train_data_size = 100000
 

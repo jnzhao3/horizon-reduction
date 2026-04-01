@@ -75,25 +75,6 @@ def compute_values(subset_i, subset_j, value_agent):
     grid_values = jnp.reshape(flattened_values, (subset_i.shape[0], -1))
     return grid_values
 
-def to_oracle_rep(obs, env):
-    env_name = env.spec.id
-    if 'maze' in env_name:
-        # return obs[:2]
-        return obs[:, :2]
-    elif 'cube' in env_name:
-        num_cubes = env.unwrapped.task_infos[0]['init_xyzs'].shape[0]
-
-        ob = []
-        for i in range(num_cubes):
-            pos = get_block_i_pos_idxs(i, num_cubes)
-            # ob.append(obs[pos])
-            ob.append(obs[:, pos])
-            # ob.append((ob_info[f'privileged/block_{i}_pos'] - xyz_center) * xyz_scaler)
-        return jnp.concatenate(jnp.array(ob), axis=-1)
-    else:
-        assert False, 'not implemented'
-
-
 def reached_subgoal(env_name, subgoal, observation):
     if 'humanoidmaze' in env_name:
         return np.linalg.norm(subgoal[:2] - observation[:2]) <= 0.5

@@ -21,9 +21,8 @@ from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
 from utils.plot_utils import plot_heatmap
-from utils.samplers import to_oracle_rep
 from utils.statistics import get_statistics_class
-from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
+from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets, to_oracle_reps
 from utils.evaluation import evaluate_gcfql, evaluate
 from ogbench.relabel_utils import add_oracle_reps, relabel_dataset
 
@@ -227,11 +226,12 @@ def _get_env_current_task(env):
 
 
 def _get_task_goal(env):
+    import ipdb; ipdb.set_trace()
     cur_task = _get_env_current_task(env)
     if cur_task is None:
         raise ValueError('Environment does not expose a current task goal.')
 
-    for key in ('goal', 'goal_xy', 'goal_oracle_rep'):
+    for key in ('goal', 'goal_xy', 'goal_oracle_rep, goal_xyzs'):
         if key in cur_task and cur_task[key] is not None:
             goal = np.asarray(cur_task[key])
             if goal.ndim > 1:
@@ -261,8 +261,11 @@ def _train_step(
     global_step_file,
     prefix='',
 ):
-    batch = train_dataset.sample(config['batch_size'])
-    agent, update_info = agent.update(batch)
+    if config['action_chunking']:
+        batch = train_dataset.sample_sequence(config['batch_size'], config['horizon_length'], config['discount'])
+    else:
+        batch = train_dataset.sample(config['batch_size'])
+    agent, update_info = agent.update(batch, env=env)
     global_step += 1
     pbar.update(1)
 
@@ -270,7 +273,11 @@ def _train_step(
 
     if global_step % FLAGS.log_interval == 0:
         train_metrics = {f'{prefix}training/{k}': v for k, v in update_info.items()}
-        val_batch = val_dataset.sample(config['batch_size'])
+        # val_batch = val_dataset.sample(config['batch_size'])
+        if config['action_chunking']:
+            val_batch = val_dataset.sample_sequence(config['batch_size'], config['horizon_length'], config['discount'])
+        else:
+            val_batch = val_dataset.sample(config['batch_size'])
         _, val_info = agent.total_loss(val_batch, grad_params=None)
         train_metrics.update({f'validation/{k}': v for k, v in val_info.items()})
 
@@ -416,7 +423,10 @@ def main(_):
 
         train_dataset = _wrap_goal_conditioned_dataset(Dataset.create(**train_dataset_data, freeze=False), config)
         val_dataset = _wrap_goal_conditioned_dataset(Dataset.create(**val_dataset_data, freeze=False), config)
-        example_batch = train_dataset.sample(1)
+        if config['action_chunking']:
+            example_batch = train_dataset.sample_sequence(1, config['horizon_length'], config['discount'])
+        else:
+            example_batch = train_dataset.sample(1)
 
         agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, config)
         print(agent.config, file=sys.stderr)
@@ -462,7 +472,11 @@ def main(_):
 
         train_dataset = _wrap_goal_conditioned_dataset(Dataset.create(**train_dataset_data, freeze=False), config)
         val_dataset = _wrap_goal_conditioned_dataset(Dataset.create(**val_dataset_data, freeze=False), config)
-        example_batch = train_dataset.sample(1)
+
+        if config['action_chunking']:
+            example_batch = train_dataset.sample_sequence(1, config['horizon_length'], config['discount'])
+        else:
+            example_batch = train_dataset.sample(1)
 
         agent = _create_agent(config['agent_name'], FLAGS.seed, example_batch, config)
         print(agent.config, file=sys.stderr)
@@ -583,7 +597,7 @@ def main(_):
                     next_observations=next_ob,
                     qpos=info['qpos'],
                     qvel=info['qvel'],
-                    oracle_reps=to_oracle_rep(obs=ob[None], env=env)[0],
+                    oracle_reps=to_oracle_reps(obs=ob[None], env=env)[0],
                     # masks=1.0 - terminated,
                     # rewards=reward
                 )
@@ -673,7 +687,10 @@ def main(_):
                     relabel_dataset(FLAGS.env_name, env, train_dataset)
                     train_dataset = Dataset.create(**train_dataset, freeze=False)
 
-                    example_batch = train_dataset.sample(1)
+                    if config['action_chunking']:
+                        example_batch = train_dataset.sample_sequence(1, config['horizon_length'], config['discount'])
+                    else:
+                        example_batch = train_dataset.sample(1)
                     agent = _create_agent(fql_config['agent_name'], FLAGS.seed, example_batch, fql_config)
 
                     print(agent.config, file=sys.stderr)

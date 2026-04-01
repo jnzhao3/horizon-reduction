@@ -339,6 +339,114 @@ class GCDataset:
 
         return batch
 
+    def sample_sequence(self, batch_size: int, sequence_length: int, discount: float):
+        idxs = self.dataset.get_random_idxs(batch_size)
+        batch = self.dataset.sample(batch_size, idxs)
+
+        final_state_idxs = self.terminal_locs[np.searchsorted(self.terminal_locs, idxs)]
+
+        value_goal_idxs = self.sample_goals(
+            idxs,
+            self.config['value_p_curgoal'],
+            self.config['value_p_trajgoal'],
+            self.config['value_p_randomgoal'],
+            self.config['value_geom_sample'],
+        )
+        actor_goal_idxs = self.sample_goals(
+            idxs,
+            self.config['actor_p_curgoal'],
+            self.config['actor_p_trajgoal'],
+            self.config['actor_p_randomgoal'],
+            self.config['actor_geom_sample'],
+        )
+
+        actor_subgoal_steps = self.config['subgoal_steps']
+        low_actor_goal_idxs = np.minimum(idxs + actor_subgoal_steps, final_state_idxs)
+
+        seq_offsets = np.arange(sequence_length)
+        seq_idxs = idxs[:, None] + seq_offsets[None, :]
+        clipped_seq_idxs = np.minimum(seq_idxs, final_state_idxs[:, None])
+
+        # valid steps
+        valid = (seq_idxs <= final_state_idxs[:, None]).astype(float)
+
+        # actions (UNFLATTENED)
+        actions = self.dataset['actions'][clipped_seq_idxs]
+        actions = actions * valid[..., None].astype(actions.dtype)
+
+        # next observations (sequence)
+        if 'next_observations' in self.dataset:
+            next_observations = self.dataset['next_observations'][clipped_seq_idxs]
+        else:
+            next_obs_idxs = np.minimum(clipped_seq_idxs + 1, self.size - 1)
+            next_observations = self.get_observations(next_obs_idxs.reshape(-1)).reshape(
+                batch_size, sequence_length, -1
+            )
+
+        # freeze next_obs after invalid
+        for i in range(1, sequence_length):
+            next_observations[:, i, :] = (
+                next_observations[:, i, :] * valid[:, i:i+1]
+                + next_observations[:, i - 1, :] * (1.0 - valid[:, i:i+1])
+            )
+
+        # terminals (cumulative)
+        step_terminals = self.dataset['terminals'][clipped_seq_idxs] * valid
+        terminals = np.zeros((batch_size, sequence_length), dtype=float)
+        terminals[:, 0] = step_terminals[:, 0]
+        for i in range(1, sequence_length):
+            terminals[:, i] = np.maximum(terminals[:, i - 1], step_terminals[:, i])
+
+        # goal success
+        success_offsets = value_goal_idxs - idxs
+        successes = (success_offsets[:, None] == seq_offsets[None, :]).astype(float)
+
+        # prefix rewards
+        rewards = np.zeros((batch_size, sequence_length), dtype=float)
+
+        for i in range(sequence_length):
+            valid_i = valid[:, i]
+
+            if np.isclose(discount, 1.0):
+                pos_i = successes[:, i]
+                neg_i = -valid_i
+            else:
+                pos_i = successes[:, i] * (discount ** i)
+                neg_i = -(discount ** i) * valid_i
+
+            reward_i = neg_i if self.config['gc_negative'] else pos_i
+
+            if i == 0:
+                rewards[:, 0] = reward_i
+            else:
+                still_alive = 1.0 - terminals[:, i - 1]
+                rewards[:, i] = rewards[:, i - 1] + reward_i * still_alive
+
+        # masks = 1 - successes (per step)
+        masks = 1.0 - successes
+
+        batch_out = dict(
+            observations=batch['observations'].copy(),
+            actions=actions,
+            rewards=rewards,
+            masks=masks,
+            terminals=terminals,
+            valid=valid,
+            next_observations=next_observations,
+        )
+
+        if 'oracle_reps' in self.dataset:
+            batch_out['oracle_reps'] = batch['oracle_reps'].copy()
+            batch_out['value_goals'] = self.dataset['oracle_reps'][value_goal_idxs]
+            batch_out['actor_goals'] = self.dataset['oracle_reps'][actor_goal_idxs]
+            batch_out['low_actor_goals'] = self.dataset['oracle_reps'][low_actor_goal_idxs]
+        else:
+            batch_out['value_goals'] = self.get_observations(value_goal_idxs)
+            batch_out['actor_goals'] = self.get_observations(actor_goal_idxs)
+            batch_out['low_actor_goals'] = self.get_observations(low_actor_goal_idxs)
+
+        return batch_out
+
     def sample_goals(self, idxs, p_curgoal, p_trajgoal, p_randomgoal, geom_sample, discount=None):
         """Sample goals for the given indices."""
         batch_size = len(idxs)

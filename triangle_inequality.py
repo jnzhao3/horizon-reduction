@@ -21,9 +21,8 @@ from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
 from utils.plot_utils import plot_heatmap
-from utils.samplers import to_oracle_rep
 from utils.statistics import get_statistics_class
-from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
+from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets, to_oracle_reps
 from utils.evaluation import evaluate_gcfql, evaluate
 from ogbench.relabel_utils import add_oracle_reps, relabel_dataset
 
@@ -57,7 +56,11 @@ flags.DEFINE_integer('steps_toward_sg', 200, 'Number of environment steps alloca
 flags.DEFINE_float('subgoal_reached_distance', 0.25, 'Distance threshold to consider subgoal reached.')
 flags.DEFINE_integer('num_subgoal_candidates', 128, 'Number of candidate subgoals to sample when resampling.')
 flags.DEFINE_bool('use_triangle', True, 'Whether to use triangle inequality filtering for subgoals.')
-flags.DEFINE_float('triangle_threshold', 0.1, 'Slack allowed in the triangle-inequality filter.')
+flags.DEFINE_float(
+    'triangle_percentile',
+    0.5,
+    'Keep subgoals whose triangle slack is in the bottom this percentile.',
+)
 flags.DEFINE_bool('use_rnd_bonus', False, 'Whether to use RND bonus for subgoal selection.')
 flags.DEFINE_float('rnd_bonus_weight', 1.0, 'Weight for RND bonus in value function.')
 flags.DEFINE_integer('rnd_update_freq', 100, 'Frequency to update RND network during collection.')
@@ -277,10 +280,12 @@ def _sample_triangle_subgoal(agent, observation, goal, rng, env, use_triangle=Tr
     subgoals = np.asarray(agent.propose_goals(observations, goals, rng))
 
     if use_triangle:
-        dists_to_subgoal = np.asarray(agent.compute_dynamical_distance(observations, subgoals))
-        dists_to_goal = np.asarray(agent.compute_dynamical_distance(subgoals, goals))
-        default_dist = np.asarray(agent.compute_dynamical_distance(observations, goals))
-        triangle_mask = (dists_to_goal + dists_to_subgoal - default_dist) < FLAGS.triangle_threshold
+        dists_to_subgoal = np.asarray(agent.compute_dynamical_distance(observations, subgoals, env))
+        dists_to_goal = np.asarray(agent.compute_dynamical_distance(subgoals, goals, env))
+        default_dist = np.asarray(agent.compute_dynamical_distance(observations, goals, env))
+        triangle_slack = dists_to_goal + dists_to_subgoal - default_dist
+        slack_cutoff = np.percentile(triangle_slack, FLAGS.triangle_percentile)
+        triangle_mask = triangle_slack <= slack_cutoff
         filtered_subgoals = subgoals[triangle_mask]
         if len(filtered_subgoals) == 0:
             filtered_subgoals = subgoals
@@ -672,7 +677,7 @@ def main(_):
                     next_observations=next_ob,
                     qpos=info['qpos'],
                     qvel=info['qvel'],
-                    oracle_reps=to_oracle_rep(obs=ob[None], env=env)[0],
+                    oracle_reps=to_oracle_reps(obs=ob[None], env=env)[0],
                     # masks=1.0 - terminated,
                     # rewards=reward
                 )
@@ -717,7 +722,12 @@ def main(_):
 #                    )[0]
 #                )
 #                subgoal_done = next_subgoal_dist <= FLAGS.subgoal_reached_distance
-                subgoal_done = np.linalg.norm(next_ob[:2] - subgoal[:2]) <= FLAGS.subgoal_reached_distance
+                # subgoal_done = np.linalg.norm(next_ob[:2] - subgoal[:2]) <= FLAGS.subgoal_reached_distance
+                # subgoal_done = np.linalg.norm(to_oracle_reps(next_ob, env) - to_oracle_reps(subgoal, env)) <= FLAGS.subgoal_reached_distance
+                next_rep = np.asarray(to_oracle_reps(next_ob[None], env))[0]
+                subgoal_rep = np.asarray(to_oracle_reps(subgoal[None], env))[0]
+                subgoal_done = np.linalg.norm(next_rep - subgoal_rep) <= FLAGS.subgoal_reached_distance
+
                 subgoal_timed_out = subgoal_steps >= FLAGS.steps_toward_sg
 
                 if done:

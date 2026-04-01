@@ -11,28 +11,10 @@ import ml_collections
 import optax
 from pydantic import AwareDatetime
 from utils.plot_utils import get_block_i_pos_idxs
-# from utils.samplers import to_oracle_rep
 
 from utils.flax_utils import ModuleDict, TrainState, nonpytree_field
 from utils.networks import ActorVectorField, GCValue #, GoalProposalVectorField
-
-def to_oracle_rep(obs, env):
-    env_name = env.spec.id
-    if 'maze' in env_name:
-        # return obs[:2]
-        return obs[:, :2]
-    elif 'cube' in env_name:
-        num_cubes = env.unwrapped.task_infos[0]['init_xyzs'].shape[0]
-
-        ob = []
-        for i in range(num_cubes):
-            pos = get_block_i_pos_idxs(i, num_cubes)
-            # ob.append(obs[pos])
-            ob.append(obs[:, pos])
-            # ob.append((ob_info[f'privileged/block_{i}_pos'] - xyz_center) * xyz_scaler)
-        return jnp.concatenate(jnp.array(ob), axis=-1)
-    else:
-        assert False, 'not implemented'
+from wrappers.datafuncs_utils import to_oracle_reps
 
 
 class GCFQLAgent(flax.struct.PyTreeNode):
@@ -53,12 +35,28 @@ class GCFQLAgent(flax.struct.PyTreeNode):
     def critic_loss(self, batch, grad_params, rng):
         """Compute the FQL critic loss."""
         rng, sample_rng = jax.random.split(rng)
-        next_actions = self.sample_actions(batch['next_observations'], goals=batch['value_goals'], seed=sample_rng)
+
+        if self.config["action_chunking"]:
+            batch_actions = jnp.reshape(batch["actions"], (batch["actions"].shape[0], -1))
+        else:
+            batch_actions = batch["actions"]
+
+        if self.config['action_chunking']:
+            next_actions = self.sample_actions(batch['next_observations'][..., -1, :], goals=batch['value_goals'], seed=sample_rng)
+        else:
+            next_actions = self.sample_actions(batch['next_observations'], goals=batch['value_goals'], seed=sample_rng)
+        
         next_actions = jnp.clip(next_actions, -1, 1)
 
-        next_qs = self.network.select('target_critic')(
-            batch['next_observations'], goals=batch['value_goals'], actions=next_actions
-        )
+        if self.config['action_chunking']:
+            next_qs = self.network.select('target_critic')(
+                batch['next_observations'][..., -1, :], goals=batch['value_goals'], actions=next_actions
+            )
+        else:
+            next_qs = self.network.select('target_critic')(
+                batch['next_observations'], goals=batch['value_goals'], actions=next_actions
+            )
+
         if self.config['critic_loss_type'] == 'bce':
             next_qs = jax.nn.sigmoid(next_qs)
         if self.config['q_agg'] == 'min':
@@ -66,7 +64,13 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         elif self.config['q_agg'] == 'mean':
             next_q = next_qs.mean(axis=0)
 
-        target_q = batch['rewards'] + self.config['discount'] * batch['masks'] * next_q
+        if self.config['action_chunking']:
+            batch_rewards = batch['rewards'][..., -1]
+            batch_masks = batch['masks'][..., -1]
+        else:
+            batch_rewards = batch['rewards']
+            batch_masks = batch['masks']
+        target_q = batch_rewards + self.config['discount'] * batch_masks * next_q
         # Clip target Q values to the valid range.
         if self.config['gc_negative']:
             target_q = jnp.clip(target_q, -1 / (1 - self.config['discount']), 0)
@@ -75,7 +79,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
         if self.config['critic_loss_type'] == 'squared':
             q = self.network.select('critic')(
-                batch['observations'], goals=batch['value_goals'], actions=batch['actions'], params=grad_params
+                batch['observations'], goals=batch['value_goals'], actions=batch_actions, params=grad_params
             )
             critic_loss = jnp.square(q - target_q).mean()
 
@@ -88,7 +92,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
         elif self.config['critic_loss_type'] == 'bce':
             q_logit = self.network.select('critic')(
-                batch['observations'], goals=batch['value_goals'], actions=batch['actions'], params=grad_params
+                batch['observations'], goals=batch['value_goals'], actions=batch_actions, params=grad_params
             )
             q = jax.nn.sigmoid(q_logit)
             log_q = jax.nn.log_sigmoid(q_logit)
@@ -108,12 +112,18 @@ class GCFQLAgent(flax.struct.PyTreeNode):
     @jax.jit
     def actor_loss(self, batch, grad_params, rng):
         """Compute the FQL actor loss."""
-        batch_size, action_dim = batch['actions'].shape
+
+        if self.config["action_chunking"]:
+            batch_actions = jnp.reshape(batch["actions"], (batch["actions"].shape[0], -1))
+        else:
+            batch_actions = batch["actions"]
+
+        batch_size, action_dim = batch_actions.shape
         rng, x_rng, t_rng = jax.random.split(rng, 3)
 
         # BC flow loss.
         x_0 = jax.random.normal(x_rng, (batch_size, action_dim))
-        x_1 = batch['actions']
+        x_1 = batch_actions
         t = jax.random.uniform(t_rng, (batch_size, 1))
         x_t = (1 - t) * x_0 + t * x_1
         vel = x_1 - x_0
@@ -247,8 +257,8 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
         return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
 
-    @jax.jit
-    def total_loss(self, batch, grad_params, rng=None):
+    @partial(jax.jit, static_argnames=("env",))
+    def total_loss(self, batch, grad_params, rng=None, env=None):
         """Compute the total loss."""
         info = {}
         rng = rng if rng is not None else self.rng
@@ -294,14 +304,14 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         )
         network.params[f'modules_target_{module_name}'] = new_target_params
 
-    @jax.jit
-    def update(self, batch):
+    @partial(jax.jit, static_argnames=("env",))
+    def update(self, batch, env=None):
         """Update the agent and return a new agent with information dictionary."""
 
         new_rng, rng = jax.random.split(self.rng)
 
         def loss_fn(grad_params):
-            return self.total_loss(batch, grad_params, rng=rng)
+            return self.total_loss(batch, grad_params, rng=rng, env=env)
 
         new_network, info = self.network.apply_loss_fn(loss_fn=loss_fn)
         self.target_update(new_network, 'critic')
@@ -325,10 +335,10 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         # need to clip goals?
         return x
 
-    @jax.jit
-    def compute_dynamical_distance(self, states, goals):
-        # states = to_oracle_rep(jnp.asarray(states), env) # TODO: fix this
-        states = jnp.asarray(states)[:, :2]
+    # @jax.jit
+    @partial(jax.jit, static_argnames=("env",))
+    def compute_dynamical_distance(self, states, goals, env):
+        states = to_oracle_reps(states, env=env)
         v = self.network.select('value')(states, goals=goals)
         discount = self.config['discount']
 
@@ -351,6 +361,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         temperature=1.0
     ):
         # TODO: no longer supports multiple goals
+
         action_dim = self.config['action_dim'] * \
                         (self.config['horizon_length'] if self.config["action_chunking"] else 1)
         noises = jax.random.normal(
@@ -375,43 +386,6 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             bshape + (action_dim,))
         
         return actions
-
-    # @jax.jit
-    # def sample_actions(
-    #     self,
-    #     observations,
-    #     goals=None,
-    #     seed=None,
-    #     temperature=1.0,
-    # ):
-    #     """Sample actions from the one-step policy."""
-
-    #     if self.config['actor_type'] == 'best-of-n':
-
-    #         return self.best_of_n(observations=observations, goals=goals, seed=seed)
-        
-    #     mult_goals = goals.ndim > 1 and observations.ndim == 1
-
-    #     action_seed, noise_seed = jax.random.split(seed)
-    #     actions = jax.random.normal(
-    #         action_seed,
-    #         (
-    #             *observations.shape[: -len(self.config['ob_dims'])],
-    #             self.config['action_dim'],
-    #         ),
-    #     )
-
-    #     if mult_goals:
-    #         observations = jnp.repeat(observations[None], goals.shape[0], axis=0)
-    #         actions = jnp.repeat(actions[None], goals.shape[0], axis=0)
-            
-    #     actions = self.network.select('actor_onestep_flow')(observations=observations, goals=goals, actions=actions)
-
-    #     if mult_goals:
-    #         actions = actions.mean(axis=0)
-
-    #     actions = jnp.clip(actions, -1, 1)
-    #     return actions
     
     @jax.jit
     def best_of_n(
@@ -540,7 +514,10 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         ex_observations = example_batch['observations']
         ex_actions = example_batch['actions']
         ex_goals = example_batch['actor_goals']
-        ex_times = ex_actions[..., :1]
+        if config['action_chunking']:
+            ex_times = ex_actions[..., 0, :1]
+        else:
+            ex_times = ex_actions[..., :1]
         ob_dims = ex_observations.shape[1:]
         action_dim = ex_actions.shape[-1]
         goal_dim = ex_goals.shape[-1]
@@ -552,16 +529,21 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             num_ensembles=config['num_qs'],
         )
 
-
+        if config["action_chunking"]:
+            # full_actions = jnp.concatenate([ex_actions] * config["horizon_length"], axis=-1)
+            full_actions = ex_actions.reshape(ex_actions.shape[0], -1)
+        else:
+            full_actions = ex_actions
+        full_action_dim = full_actions.shape[-1]
 
         actor_bc_flow_def = ActorVectorField(
             hidden_dims=config['actor_hidden_dims'],
-            action_dim=action_dim,
+            action_dim=full_action_dim,
             layer_norm=config['layer_norm'],
         )
         actor_onestep_flow_def = ActorVectorField(
             hidden_dims=config['actor_hidden_dims'],
-            action_dim=action_dim,
+            action_dim=full_action_dim,
             layer_norm=config['layer_norm'],
         )
 
@@ -579,39 +561,44 @@ class GCFQLAgent(flax.struct.PyTreeNode):
                 layer_norm=config['layer_norm'],
             )
 
+        # action_dim = self.config['action_dim'] * \
+        #                 (self.config['horizon_length'] if self.config["action_chunking"] else 1)
+        # if config['action_chunking']:
+        #     ex_actions = jnp.zeros(action_dim * config['horizon_length'])[None] # TODO: properly do this? it's kind of hacky
+
         if config['train_goal_proposer']:
             if config['goal_proposer_type'] == 'default':
                 network_info = dict(
-                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
-                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                critic=(critic_def, (ex_observations, ex_goals, full_actions)),
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, full_actions)),
                 value=(value_def, (ex_goals, ex_goals)),
-                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
-                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, full_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, full_actions, None)),
                 goal_proposer=(goal_proposer_def, (ex_observations, None, ex_goals, ex_times)) # TODO: check if this is reasonable?
             )
             else:
                 network_info = dict(
-                    critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
-                    target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                    critic=(critic_def, (ex_observations, ex_goals, full_actions)),
+                    target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, full_actions)),
                     value=(value_def, (ex_goals, ex_goals)),
-                    actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
-                    actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None)),
+                    actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, full_actions, ex_times)),
+                    actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, full_actions, None)),
                     goal_proposer=(goal_proposer_def, (ex_observations, ex_goals, ex_goals, ex_times)) # TODO: check if this is reasonable?
                 )
         elif config['train_value']:
             network_info = dict(
-                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
-                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
+                critic=(critic_def, (ex_observations, ex_goals, full_actions)),
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, full_actions)),
                 value=(value_def, (ex_goals, ex_goals)),
-                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
-                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None))
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, full_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, full_actions, None))
             )
         else:
             network_info = dict(
-                critic=(critic_def, (ex_observations, ex_goals, ex_actions)),
-                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, ex_actions)),
-                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, ex_actions, ex_times)),
-                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, ex_actions, None))
+                critic=(critic_def, (ex_observations, ex_goals, full_actions)),
+                target_critic=(copy.deepcopy(critic_def), (ex_observations, ex_goals, full_actions)),
+                actor_bc_flow=(actor_bc_flow_def, (ex_observations, ex_goals, full_actions, ex_times)),
+                actor_onestep_flow=(actor_onestep_flow_def, (ex_observations, ex_goals, full_actions, None))
             )
         networks = {k: v[0] for k, v in network_info.items()}
         network_args = {k: v[1] for k, v in network_info.items()}

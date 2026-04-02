@@ -17,6 +17,7 @@ from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
+from agents.gcfql import GCFQLAgent
 from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
@@ -226,16 +227,15 @@ def _get_env_current_task(env):
 
 
 def _get_task_goal(env):
-    import ipdb; ipdb.set_trace()
     cur_task = _get_env_current_task(env)
     if cur_task is None:
         raise ValueError('Environment does not expose a current task goal.')
 
-    for key in ('goal', 'goal_xy', 'goal_oracle_rep, goal_xyzs'):
+    for key in ('goal', 'goal_xy', 'goal_oracle_rep', 'goal_xyzs'):
         if key in cur_task and cur_task[key] is not None:
             goal = np.asarray(cur_task[key])
             if goal.ndim > 1:
-                goal = goal[0]
+                goal = goal.reshape(-1) # flatten the goal
             return goal
 
     if 'goal_ij' in cur_task and hasattr(env.unwrapped, 'ij_to_xy'):
@@ -265,7 +265,12 @@ def _train_step(
         batch = train_dataset.sample_sequence(config['batch_size'], config['horizon_length'], config['discount'])
     else:
         batch = train_dataset.sample(config['batch_size'])
-    agent, update_info = agent.update(batch, env=env)
+
+    if isinstance(agent, GCFQLAgent):
+        agent, update_info = agent.update(batch, env=env)
+    else:
+        agent, update_info = agent.update(batch)
+
     global_step += 1
     pbar.update(1)
 
@@ -569,8 +574,10 @@ def main(_):
                         stats=stats,
                         data_to_plot=data_to_plot,
                         new_data_to_plot=new_data_to_plot,
+                        action_queue=[],
                         env=env
                     )
+                    action_queue = collection_state['action_queue']
                 else:
                     ob = collection_state['ob']
                     goal = collection_state['goal']
@@ -578,14 +585,32 @@ def main(_):
                     stats = collection_state['stats']
                     data_to_plot = collection_state['data_to_plot']
                     new_data_to_plot = collection_state['new_data_to_plot']
+                    action_queue = collection_state.get('action_queue', [])
                     env = collection_state['env']
 
                 curr_rng, rng = jax.random.split(rng)
-                action = agent.sample_actions(
-                    observations=ob,
-                    goals=goal,
-                    seed=curr_rng,
-                )
+
+                if config['action_chunking']:
+                    if len(action_queue) == 0:
+
+                        action = agent.sample_actions(
+                            observations=ob, 
+                            goals=goal,
+                            seed=curr_rng)
+
+                        action_chunk = np.array(action).reshape(-1, config['action_dim'])
+                        for action in action_chunk:
+                            action_queue.append(action)
+
+                    action = action_queue.pop(0)
+
+                else:
+                    action = agent.sample_actions(
+                        observations=ob,
+                        goals=goal,
+                        seed=curr_rng,
+                    )
+
                 action = np.clip(action, -1, 1)
                 next_ob, reward, terminated, truncated, info = env.step(action)
                 done = terminated or truncated
@@ -633,6 +658,7 @@ def main(_):
                     next_collection_ob, reset_info = env.reset()
                     del reset_info
                     next_goal = _get_task_goal(env)
+                    action_queue = []
                     print(goal)
                     if terminated:
                         wandb.log({'data_collection/goal_reach': 1.0}, step=global_step)
@@ -642,6 +668,7 @@ def main(_):
                 collection_state['ob'] = next_collection_ob
                 collection_state['goal'] = next_goal
                 collection_state['done'] = done
+                collection_state['action_queue'] = action_queue
 
                 if global_step % FLAGS.log_interval == 0:
                     for k, v in stats.get_statistics().items():

@@ -62,9 +62,9 @@ for debug in [True, False]:
         # "antmaze-medium-navigate",
         # "antmaze-giant-navigate", 
         "cube-triple-play",
-        # "cube-quadruple-play",
+        "cube-quadruple-play",
         # "antmaze-large-navigate", 
-        # "cube-double-play",
+        "cube-double-play",
         # "scene-play-sparse",
         # "puzzle-3x3-play-sparse",
     ]:

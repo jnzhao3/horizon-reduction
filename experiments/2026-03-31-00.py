@@ -12,12 +12,12 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-03-31-00"
+run_group = "2026-04-02-01"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = 'gc_gcfql_baseline.py'
-priority = 'high'
+priority = 'lowest'
 ##=========== END INITIAL INFORMATION ===========##
 
 env_suffix = [f'-singletask-task{i}-v0' for i in range(1, 6)]

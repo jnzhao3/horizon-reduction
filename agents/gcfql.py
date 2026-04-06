@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import optax
-from pydantic import AwareDatetime
 from utils.plot_utils import get_block_i_pos_idxs
 
 from utils.flax_utils import ModuleDict, TrainState, nonpytree_field
@@ -222,37 +221,56 @@ class GCFQLAgent(flax.struct.PyTreeNode):
     
         return bc_flow_loss, {'goal_proposer_loss': bc_flow_loss}
 
+    @staticmethod
+    def expectile_loss(adv, diff, expectile):
+        """Compute the expectile loss."""
+        weight = jnp.where(adv >= 0, expectile, (1 - expectile))
+        return weight * (diff**2)
+
     @jax.jit
-    def value_loss(self, batch, grad_params, rng):
-        pred = self.network.select('value')(
-            observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
-        )
+    # def value_loss(self, batch, grad_params, rng):
+    #     pred = self.network.select('value')(
+    #         observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
+    #     )
 
-        if self.config['use_policy_for_value']:
-            policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
-        else:
-            policy_actions = batch['actions']
+    #     if self.config['use_policy_for_value']:
+    #         policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
+    #     else:
+    #         policy_actions = batch['actions']
 
-        q_pred = self.network.select('target_critic')(
-            batch['observations'], goals=batch['value_goals'], actions=policy_actions
-        )
+    #     q_pred = self.network.select('target_critic')(
+    #         batch['observations'], goals=batch['value_goals'], actions=policy_actions
+    #     )
 
-        if self.config['critic_loss_type'] == 'bce':
-            q_pred = jax.nn.sigmoid(q_pred)
-        if self.config['q_agg'] == 'min':
-            q_pred = q_pred.min(axis=0)
-        elif self.config['q_agg'] == 'mean':
-            q_pred = q_pred.mean(axis=0)
+    #     if self.config['critic_loss_type'] == 'bce':
+    #         q_pred = jax.nn.sigmoid(q_pred)
+    #     if self.config['q_agg'] == 'min':
+    #         q_pred = q_pred.min(axis=0)
+    #     elif self.config['q_agg'] == 'mean':
+    #         q_pred = q_pred.mean(axis=0)
 
-        if self.config['critic_loss_type'] == 'squared':
-            value_loss = jnp.square(pred - q_pred).mean()
-        elif self.config['critic_loss_type'] == 'bce':
-            value_loss = self.bce_loss(pred, q_pred).mean()
-        else:
-            assert False, 'set critic_loss_type to be a valid value!'
+    #     if self.config['critic_loss_type'] == 'squared':
+    #         value_loss = jnp.square(pred - q_pred).mean()
+    #     elif self.config['critic_loss_type'] == 'bce':
+    #         value_loss = self.bce_loss(pred, q_pred).mean()
+    #     else:
+    #         assert False, 'set critic_loss_type to be a valid value!'
 
-        pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
-        return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
+    #     pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
+    #     return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
+    def value_loss(self, batch, grad_params):
+        """Compute the IQL value loss."""
+        q1, q2 = self.network.select('target_critic')(batch['observations'], batch['value_goals'], batch['actions'])
+        q = jnp.minimum(q1, q2)
+        v = self.network.select('value')(batch['observations'], batch['value_goals'], params=grad_params)
+        value_loss = self.expectile_loss(q - v, q - v, self.config['expectile']).mean()
+
+        return value_loss, {
+            'value_loss': value_loss,
+            'v_mean': v.mean(),
+            'v_max': v.max(),
+            'v_min': v.min(),
+        }
 
     @partial(jax.jit, static_argnames=("env",))
     def total_loss(self, batch, grad_params, rng=None, env=None):

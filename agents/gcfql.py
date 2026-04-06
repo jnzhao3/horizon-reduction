@@ -258,7 +258,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     #     pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
     #     return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
-    def value_loss(self, batch, grad_params):
+    def value_loss(self, batch, grad_params, **kwargs):
         """Compute the IQL value loss."""
         q1, q2 = self.network.select('target_critic')(batch['observations'], batch['value_goals'], batch['actions'])
         q = jnp.minimum(q1, q2)

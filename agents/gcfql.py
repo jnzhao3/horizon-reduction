@@ -258,11 +258,12 @@ class GCFQLAgent(flax.struct.PyTreeNode):
 
     #     pred_value = jax.nn.sigmoid(pred) if self.config['critic_loss_type'] == 'bce' else pred
     #     return value_loss, {'value_loss': value_loss, 'q_pred': q_pred.mean(), 'value_pred': pred_value.mean()}
-    def value_loss(self, batch, grad_params, **kwargs):
+    def value_loss(self, batch, grad_params, rng):
         """Compute the IQL value loss."""
-        q1, q2 = self.network.select('target_critic')(batch['observations'], batch['value_goals'], batch['actions'])
-        q = jnp.minimum(q1, q2)
-        v = self.network.select('value')(batch['observations'], batch['value_goals'], params=grad_params)
+
+        qs = self.network.select('target_critic')(batch['observations'], batch['value_goals'], batch['actions'])
+        q = jnp.min(qs)
+        v = self.network.select('value')(batch['oracle_reps'], batch['value_goals'], params=grad_params)
         value_loss = self.expectile_loss(q - v, q - v, self.config['expectile']).mean()
 
         return value_loss, {
@@ -674,7 +675,8 @@ def get_config():
             # value_loss_type='squared',
             awr_invtemp=0.0,
             goal_proposer_type='awr', # awr, default, value-gc, actor-gc,
-            use_policy_for_value=False # TODO: delete this, eventually
+            use_policy_for_value=False, # TODO: delete this, eventually
+            expectile=0.5
         )
     )
     return config

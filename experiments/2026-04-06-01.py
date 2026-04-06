@@ -12,7 +12,7 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-04-06-01"
+run_group = "2026-04-06-02"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -92,7 +92,7 @@ for debug in [True, False]:
             data_dirs.append(f"{domain}{data_suffix}")
         # domains.append(domain)
 
-    best_of_n = [4] # 4 seems like the best for humanoidmaze
+    expectiles = [0.5, 0.9, 0.3] # 4 seems like the best for humanoidmaze
     alphas = [1.0, 3.0, 10.0] # [600.0, 300.0]
     ssteps = [25] # [25, 50]
     thresholds = [50] # [50, 100, 25]
@@ -106,7 +106,7 @@ for debug in [True, False]:
     run_count = 0
     for t in thresholds:
         for h in ssteps:
-            for n in best_of_n:
+            for expec in expectiles:
                 for alpha in alphas:
                     for use_policy in use_policy_values:
                         for seed in [1001]: # training one seed for now
@@ -132,11 +132,12 @@ for debug in [True, False]:
                                     "agent.alpha": alpha, # agent_params["GCFQL"][domain]["alpha"],
                                     "agent.subgoal_steps": h,
                                     "agent.awr_invtemp": 0.0,
-                                    "agent.best_of_n": n,
+                                    "agent.best_of_n": 4,
                                     "agent.use_policy_for_value": use_policy,
+                                    "agent.expectile": expec,
 
                                     "fql_agent": "agents/fql.py",
-                                    "fql_agent.best_of_n": n,
+                                    "fql_agent.best_of_n": 4,
                                     "fql_agent.horizon_length": 25,
                                     "fql_agent.action_chunking": True if 'cube' in env_name or 'puzzle' in env_name else False,
                                     "fql_agent.num_qs": 10,

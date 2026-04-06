@@ -9,3 +9,4 @@ dist/
 .wandb/
 *.pkl
 *.npz
+output/

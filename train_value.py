@@ -22,7 +22,6 @@ from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
 from utils.plot_utils import plot_heatmap
-from utils.samplers import to_oracle_rep
 from utils.statistics import get_statistics_class
 from wrappers.datafuncs_utils import clip_dataset, make_env_and_datasets
 from utils.evaluation import evaluate_gcfql, evaluate

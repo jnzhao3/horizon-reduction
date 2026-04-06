@@ -228,9 +228,6 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             observations=batch['oracle_reps'], goals=batch['value_goals'], params=grad_params
         )
 
-        # q_pred = self.network.select('target_critic')(
-        #     batch['observations'], goals=batch['value_goals'], actions=batch['actions']
-        # )
         if self.config['use_policy_for_value']:
             policy_actions = self.sample_actions(batch['observations'], goals=batch['value_goals'], seed=rng)
         else:
@@ -277,14 +274,16 @@ class GCFQLAgent(flax.struct.PyTreeNode):
         loss = critic_loss + actor_loss
 
         if self.config['train_value']:
-            value_loss, value_info = self.value_loss(batch, grad_params, rng)
+            value_rng, rng = jax.random.split(rng)
+            value_loss, value_info = self.value_loss(batch, grad_params, value_rng)
             for k, v in value_info.items():
                 info[f'value/{k}'] = v
 
             loss = loss + value_loss
 
         if self.config['train_goal_proposer']:
-            goal_propose_loss, goal_propose_info = self.goal_proposer_loss(batch, grad_params, rng)
+            goal_rng, rng = jax.random.split(rng)
+            goal_propose_loss, goal_propose_info = self.goal_proposer_loss(batch, grad_params, goal_rng)
 
             for k, v in goal_propose_info.items():
                 info[f'goal_proposer/{k}'] = v

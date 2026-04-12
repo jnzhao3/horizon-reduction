@@ -1,4 +1,5 @@
 from agents.crl import CRLAgent
+from agents.dqc import DQCAgent
 from agents.dsharsa import DSHARSAAgent
 from agents.gcfbc import GCFBCAgent
 from agents.gcfql import GCFQLAgent
@@ -14,6 +15,7 @@ from agents.rnd import RND
 
 agents = dict(
     crl=CRLAgent,
+    dqc=DQCAgent,
     dsharsa=DSHARSAAgent,
     gcfbc=GCFBCAgent,
     gcfql=GCFQLAgent,

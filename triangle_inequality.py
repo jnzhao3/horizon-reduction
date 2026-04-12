@@ -17,7 +17,7 @@ from absl import app, flags
 from ml_collections import config_flags
 
 from agents import agents
-from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer
+from utils.datasets import Dataset, GCDataset, HGCDataset, ReplayBuffer, CGCDataset
 from utils.flax_utils import restore_agent, save_agent
 from utils.log_utils import CsvLogger, get_animal, get_exp_name, get_flag_dict, setup_wandb
 from utils.plot_utils import plot_heatmap
@@ -165,6 +165,9 @@ def _wrap_goal_conditioned_dataset(dataset, config):
         return dataset
     if isinstance(dataset, ReplayBuffer):
         return dataset
+    
+    if config['dataset_class'] == 'CGCDataset':
+        return CGCDataset(dataset, config)
     return GCDataset(dataset, config)
 
 

@@ -298,7 +298,7 @@ class GCFQLAgent(flax.struct.PyTreeNode):
             for k, v in value_info.items():
                 info[f'value/{k}'] = v
 
-            loss = loss + value_loss
+            loss = loss + 5 * value_loss # TODO: turn this off eventually
 
         if self.config['train_goal_proposer']:
             goal_rng, rng = jax.random.split(rng)

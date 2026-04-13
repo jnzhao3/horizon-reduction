@@ -944,6 +944,14 @@ class CGCDataset(GCDataset):
         batch['masks'] = 1.0 - successes
         batch['rewards'] = successes
 
+        actor_goal_idxs = self.sample_goals(
+            idxs,
+            self.config['actor_p_curgoal'],
+            self.config['actor_p_trajgoal'],
+            self.config['actor_p_randomgoal'],
+            self.config['actor_geom_sample'],
+        )
+
         actor_subgoal_steps = (
             self.config['subgoal_steps']
             if self.config.get('actor_subgoal_steps') is None
@@ -952,8 +960,10 @@ class CGCDataset(GCDataset):
         low_actor_goal_idxs = np.minimum(idxs + actor_subgoal_steps, final_state_idxs)
 
         if 'oracle_reps' in self.dataset:
+            batch['actor_goals'] = self.dataset['oracle_reps'][actor_goal_idxs]
             batch['low_actor_goals'] = self.dataset['oracle_reps'][low_actor_goal_idxs]
         else:
+            batch['actor_goals'] = self.get_observations(actor_goal_idxs)
             batch['low_actor_goals'] = self.get_observations(low_actor_goal_idxs)
 
         return batch

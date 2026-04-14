@@ -87,8 +87,8 @@ for debug in [True, False]:
             data_dirs.append(f"{domain}{data_suffix}")
 
     best_of_n = [32]
-    alphas = [600.0, 1200.0, 300.0]
-    thresholds = [50, 100, 25]
+    alphas = [600.0]
+    thresholds = [50]
 
     run_count = 0
     for t in thresholds:

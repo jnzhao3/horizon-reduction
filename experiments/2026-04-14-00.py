@@ -12,7 +12,7 @@ args = parser.parse_args()
 ##=========== END ARGUMENTS ===========##
 
 ##=========== INITIAL INFORMATION ===========##
-run_group = "2026-04-14-00"
+run_group = "2026-04-14-01"
 data_root = "../../scratch/data/"
 output_dir = Path(__file__).resolve().parents[1] / "sbatch"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -112,7 +112,7 @@ for debug in [True, False]:
                             "agent.kappa_d": 0.8,
                             "agent.num_qs": 2,
                             "agent.q_agg": "mean",
-                            "agent.discount": 0.995 if "giant" in env_name or "humanoid" in env_name else 0.99,
+                            "agent.discount": 0.999 if "giant" in env_name or "humanoid" in env_name else 0.99, # changed this from 0.995
                             "agent.batch_size": 1028,
                             "agent.best_of_n": n,
 

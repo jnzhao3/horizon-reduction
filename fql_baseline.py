@@ -308,9 +308,9 @@ def checkpoint_and_exit(
 def main(_):
 
     ##=========== SET-UP ===========##
-    assert 'humanoidmaze' not in FLAGS.env_name or FLAGS.agent['discount'] == 0.995, (
-        'Humanoid maze tasks require discount factor of 0.995.'
-    )
+    # assert 'humanoidmaze' not in FLAGS.env_name or FLAGS.agent['discount'] == 0.995, (
+    #     'Humanoid maze tasks require discount factor of 0.995.'
+    # )
     assert FLAGS.dataset_dir is not None, 'must provide dataset directory'
 
     ##=========== RANDOM SEED ===========##

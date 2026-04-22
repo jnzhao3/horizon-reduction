@@ -2,7 +2,7 @@ from __future__ import annotations
 
 ##=========== CONSTANTS ===========##
 
-PATH = '../../scratch/aorl2/2026-04-08-00/2026-04-08-00.b7bf8a914965d2ce2cdfd7704faa38b5fee704b874bc391d21e3b9137701759c/'
+PATH = '../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/'
 
 CKPT_NUM = 1000000
 
@@ -162,9 +162,9 @@ all_cell_points = np.asarray(list(all_cells.keys()))
 print(saved_flags['env_name'])
 
 config = dict(
-    env_name='humanoidmaze-large-navigate-v0',
+    env_name='humanoidmaze-giant-navigate-v0',
     # dataset_path='../../scratch/aorl2/YOUR_RUN_DIR/data-1000000.npz',
-    dataset_path='../../scratch/data/humanoidmaze-large-navigate-v0/humanoidmaze-large-navigate-v0seed-0.npz',
+    dataset_path='../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/humanoidmaze-giant-navigate-v0-003.npz',
     observations_key='oracle_reps', # 'observations',
     goal_key='actor_goals',
     actions_key='low_actor_goals', #'actions',
@@ -415,7 +415,7 @@ for cur_task_id, task_info in enumerate(task_infos, start=1):
                 to_subgoal = 0
 
             action_rng, rng = jax.random.split(rng)
-            action = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng)
+            action = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng, best_of_n_override=2)
             to_subgoal += 1
             ob, reward, terminated, truncated, _ = env.step(action)
 

@@ -13,10 +13,10 @@ parser.add_argument('--gpu_limit', type=int, default=100)
 args = parser.parse_args()
 
 
-run_group = '2026-04-18-00'
+run_group = '2026-04-21-02'
 output_dir = Path(__file__).resolve().parents[1] / 'sbatch'
 output_dir.mkdir(parents=True, exist_ok=True)
-run_file = '07_tuning_goal_proposer.py'
+run_file = '12_tuning_goal_proposer_dqc.py'
 priority = 'high'
 
 

@@ -11,7 +11,7 @@
 #SBATCH --partition=savio4_gpu
 #SBATCH --qos=rail_gpu4_high
 #SBATCH --requeue
-#SBATCH --array=1-1%10
+#SBATCH --array=1-1%100
 #SBATCH --comment=2026-04-18-00-part1
 
 TASK_ID=$((SLURM_ARRAY_TASK_ID-1))

@@ -13,7 +13,7 @@ parser.add_argument('--gpu_limit', type=int, default=100)
 args = parser.parse_args()
 
 
-run_group = '2026-04-18-00'
+run_group = '2026-04-20-00'
 output_dir = Path(__file__).resolve().parents[1] / 'sbatch'
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = '07_tuning_goal_proposer.py'
@@ -95,35 +95,12 @@ def build_commands(debug):
                 dict(
                     subgoal_steps=subgoal_step,
                     steps_to_subgoal=25,
-                    num_train_steps=100000,
+                    num_train_steps=2000000,
                     num_trials=10,
                     num_trial_steps=4000,
                     num_subgoals=128,
                     mult_factor=mult_factor,
                     additive_factor=0.0,
-                    a_b_factor=a_b_factor,
-                    b_c_factor=b_c_factor,
-                    seed=seed,
-                )
-            )
-
-        additive_factors = [-50, -100.0]
-        for seed, subgoal_step, add_factor, (a_b_factor, b_c_factor) in product(
-            seeds,
-            subgoal_steps,
-            additive_factors,
-            score_weights,
-        ):
-            configs.append(
-                dict(
-                    subgoal_steps=subgoal_step,
-                    steps_to_subgoal=25,
-                    num_train_steps=100000,
-                    num_trials=10,
-                    num_trial_steps=4000,
-                    num_subgoals=128,
-                    mult_factor=1.0,
-                    additive_factor=add_factor,
                     a_b_factor=a_b_factor,
                     b_c_factor=b_c_factor,
                     seed=seed,

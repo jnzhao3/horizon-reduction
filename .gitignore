@@ -11,3 +11,5 @@ dist/
 *.npz
 output/
 wandb/
+.codex
+checkpoints/

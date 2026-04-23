@@ -44,6 +44,8 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--subgoal_steps', type=int, default=100)
+parser.add_argument('--min_horizon_steps', type=int, default=1)
+parser.add_argument('--horizon_conditioned', action='store_true')
 parser.add_argument('--steps_to_subgoal', type=int, default=25)
 parser.add_argument('--num_train_steps', type=int, default=100000)
 parser.add_argument('--num_trials', type=int, default=10)
@@ -185,34 +187,109 @@ config = dict(
     actor_geom_sample=True,
     gc_negative=False,
     subgoal_steps=args['subgoal_steps'],
+    min_horizon_steps=args['min_horizon_steps'],
+    max_horizon_steps=args['subgoal_steps'],
     discount=0.995,
     flow_steps=10,
     backup_horizon=25,
     goal_conditioned=False,
+    observation_conditioned=False,
+    horizon_conditioned=args['horizon_conditioned'],
+    horizon_key='horizons',
+    horizon_scale=args['subgoal_steps'],
 )
+
+class GoalProposerCGCDataset(CGCDataset):
+    def sample(self, batch_size: int, idxs=None, evaluation=False):
+        if not self.config.get('horizon_conditioned', False):
+            return super().sample(batch_size, idxs=idxs, evaluation=evaluation)
+
+        if idxs is None:
+            idxs = self.dataset.get_random_idxs(batch_size)
+
+        batch = self.dataset.sample(batch_size, idxs)
+        final_state_idxs = self.terminal_locs[np.searchsorted(self.terminal_locs, idxs)]
+        min_horizon = int(self.config.get('min_horizon_steps', 1))
+        max_horizon = int(self.config.get('max_horizon_steps', self.config['subgoal_steps']))
+        horizons = np.random.randint(min_horizon, max_horizon + 1, size=batch_size)
+        target_idxs = np.minimum(idxs + horizons, final_state_idxs)
+
+        if 'oracle_reps' in self.dataset:
+            batch[self.config['actions_key']] = self.dataset['oracle_reps'][target_idxs]
+        else:
+            batch[self.config['actions_key']] = self.get_observations(target_idxs)
+
+        if self.config.get('goal_conditioned', False):
+            actor_goal_idxs = self.sample_goals(
+                idxs,
+                self.config['actor_p_curgoal'],
+                self.config['actor_p_trajgoal'],
+                self.config['actor_p_randomgoal'],
+                self.config['actor_geom_sample'],
+            )
+            if 'oracle_reps' in self.dataset:
+                batch[self.config['goal_key']] = self.dataset['oracle_reps'][actor_goal_idxs]
+            else:
+                batch[self.config['goal_key']] = self.get_observations(actor_goal_idxs)
+
+        batch[self.config['horizon_key']] = horizons[:, None].astype(np.float32)
+        return batch
+
 
 env, base_train_dataset, val_dataset = make_env_and_datasets(
     config['env_name'],
     dataset_path=config['dataset_path'],
     use_oracle_reps=True,
 )
-train_dataset = CGCDataset(base_train_dataset, config=config)
+train_dataset = GoalProposerCGCDataset(base_train_dataset, config=config)
 
 class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
     rng: Any
     network: TrainState
     config: Any = nonpytree_field()
 
-    # train for more steps
-    # train unconditioned
-    # train with normalized between -1 and 1
+    def _get_horizons(self, batch, batch_size):
+        if not self.config['horizon_conditioned']:
+            return None
+
+        horizon_key = self.config.get('horizon_key', 'horizons')
+        if horizon_key in batch:
+            horizons = jnp.asarray(batch[horizon_key], dtype=jnp.float32)
+        else:
+            horizons = jnp.full((batch_size, 1), float(self.config['subgoal_steps']), dtype=jnp.float32)
+        if horizons.ndim == 1:
+            horizons = horizons[:, None]
+        return horizons
+
+    def _encode_horizons(self, horizons):
+        horizon_scale = float(self.config.get('horizon_scale', self.config.get('subgoal_steps', 1)))
+        horizons = jnp.asarray(horizons, dtype=jnp.float32)
+        if horizons.ndim == 1:
+            horizons = horizons[:, None]
+        linear = horizons / horizon_scale
+        log_linear = jnp.log1p(horizons) / jnp.log1p(horizon_scale)
+        return jnp.concatenate([linear, log_linear], axis=-1)
+
+    def _append_horizons(self, observations, horizons):
+        if not self.config['horizon_conditioned']:
+            return observations
+        return jnp.concatenate([observations, self._encode_horizons(horizons)], axis=-1)
 
     def flow_loss(self, batch, grad_params=None, rng=None):
-        observations = batch[self.config['observations_key']]
-        goals = batch[self.config['goal_key']] if self.config['goal_conditioned'] else None
-        target_actions = batch[self.config['actions_key']]
-
+        target_actions = jnp.asarray(batch[self.config['actions_key']], dtype=jnp.float32)
         batch_size, action_dim = target_actions.shape
+
+        if self.config['observation_conditioned']:
+            observations = jnp.asarray(batch[self.config['observations_key']], dtype=jnp.float32)
+        else:
+            observations = jnp.zeros((batch_size, 0), dtype=jnp.float32)
+
+        horizons = self._get_horizons(batch, batch_size)
+        observations = self._append_horizons(observations, horizons)
+
+        goals = batch[self.config['goal_key']] if self.config['goal_conditioned'] else None
+        goals = None if goals is None else jnp.asarray(goals, dtype=jnp.float32)
+
         rng = self.rng if rng is None else rng
         x_rng, t_rng = jax.random.split(rng)
 
@@ -230,9 +307,11 @@ class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
         )
         loss = jnp.mean(jnp.square(pred_vel - vel))
         mae = jnp.mean(jnp.abs(pred_vel - vel))
+        endpoint_mse = jnp.mean(jnp.square((x_t + (1.0 - t) * pred_vel) - target_actions))
         return loss, {
             'flow_loss': loss,
             'velocity_mae': mae,
+            'endpoint_mse': endpoint_mse,
         }
 
     @jax.jit
@@ -247,15 +326,7 @@ class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
         return self.replace(rng=new_rng, network=new_network), info
 
     @jax.jit
-    def sample_actions(self, observations, goals, rng):
-        single_example = observations.ndim == 1
-        if not self.config['goal_conditioned']:
-            goals = None
-        if single_example:
-            observations = observations[None, ...]
-            if goals is not None:
-                goals = goals[None, ...]
-
+    def _sample_actions(self, observations, goals, rng):
         x = jax.random.normal(rng, (observations.shape[0], self.config['action_dim']))
 
         for i in range(self.config['flow_steps']):
@@ -263,13 +334,83 @@ class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
             vels = self.network(observations, goals=goals, actions=x, times=t)
             x = x + vels / self.config['flow_steps']
 
-        return x[0] if single_example else x
+        return x
+
+    def sample_actions(self, observations=None, goals=None, rng=None, num_samples=None, horizons=None):
+        if rng is None:
+            rng = self.rng
+
+        if self.config['observation_conditioned']:
+            if observations is None:
+                raise ValueError('observations are required when observation_conditioned=True')
+            observations = np.asarray(observations, dtype=np.float32)
+            single_example = observations.ndim == 1
+            if single_example:
+                observations = observations[None, ...]
+            return_single = single_example and num_samples is None
+        else:
+            if num_samples is not None:
+                batch_size = int(num_samples)
+            elif goals is not None and np.asarray(goals).ndim > 1:
+                batch_size = int(np.asarray(goals).shape[0])
+            elif observations is not None and np.asarray(observations).ndim > 1:
+                batch_size = int(np.asarray(observations).shape[0])
+            elif horizons is not None and np.asarray(horizons).ndim > 0:
+                batch_size = int(np.asarray(horizons).shape[0])
+            else:
+                batch_size = 1
+            observations = np.zeros((batch_size, 0), dtype=np.float32)
+            single_example = batch_size == 1
+            return_single = single_example and num_samples is None
+
+        if self.config['horizon_conditioned']:
+            if horizons is None:
+                horizons = np.full((observations.shape[0], 1), float(self.config['subgoal_steps']), dtype=np.float32)
+            else:
+                horizons = np.asarray(horizons, dtype=np.float32)
+                if horizons.ndim == 0:
+                    horizons = np.full((observations.shape[0], 1), float(horizons), dtype=np.float32)
+                elif horizons.ndim == 1:
+                    horizons = horizons[:, None]
+                if horizons.shape[0] == 1 and observations.shape[0] != 1:
+                    horizons = np.repeat(horizons, observations.shape[0], axis=0)
+                elif horizons.shape[0] != observations.shape[0]:
+                    raise ValueError(
+                        f"horizons batch size must match observations batch size: "
+                        f"{horizons.shape[0]} vs {observations.shape[0]}"
+                    )
+            observations = np.asarray(self._append_horizons(observations, horizons), dtype=np.float32)
+
+        if not self.config['goal_conditioned']:
+            goals = None
+        elif goals is None:
+            raise ValueError('goals are required when goal_conditioned=True')
+        elif goals is not None:
+            goals = np.asarray(goals, dtype=np.float32)
+            if goals.ndim == 1:
+                goals = goals[None, ...]
+
+            if single_example and goals.shape[0] != observations.shape[0]:
+                observations = np.repeat(observations, goals.shape[0], axis=0)
+                return_single = False
+            elif goals.shape[0] != observations.shape[0]:
+                raise ValueError(
+                    f"goals batch size must match observations batch size: {goals.shape[0]} vs {observations.shape[0]}"
+                )
+
+        x = self._sample_actions(observations, goals, rng)
+        return x[0] if return_single else x
 
     @classmethod
-    def create(cls, example_batch, config):
+    def create(cls, example_batch, config, seed=None):
         config = dict(config)
         config.setdefault('goal_conditioned', True)
-        rng = jax.random.PRNGKey(args['seed'])
+        config.setdefault('observation_conditioned', True)
+        config.setdefault('horizon_conditioned', False)
+        config.setdefault('horizon_key', 'horizons')
+        config.setdefault('horizon_scale', config.get('subgoal_steps', 1))
+        seed = int(config.get('seed', 0) if seed is None else seed)
+        rng = jax.random.PRNGKey(seed)
         rng, init_rng = jax.random.split(rng)
         action_dim = example_batch[config['actions_key']].shape[-1]
         model = ActorVectorField(
@@ -278,15 +419,38 @@ class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
             layer_norm=config['layer_norm'],
         )
         init_goals = example_batch[config['goal_key']] if config['goal_conditioned'] else None
+        init_observations = (
+            example_batch[config['observations_key']]
+            if config['observation_conditioned']
+            else jnp.zeros((*example_batch[config['actions_key']].shape[:-1], 0), dtype=jnp.float32)
+        )
+        if config['horizon_conditioned']:
+            batch_size = example_batch[config['actions_key']].shape[0]
+            if config['horizon_key'] in example_batch:
+                init_horizons = jnp.asarray(example_batch[config['horizon_key']], dtype=jnp.float32)
+            else:
+                init_horizons = jnp.full((batch_size, 1), float(config['subgoal_steps']), dtype=jnp.float32)
+            if init_horizons.ndim == 1:
+                init_horizons = init_horizons[:, None]
+            horizon_scale = float(config['horizon_scale'])
+            horizon_features = jnp.concatenate(
+                [
+                    init_horizons / horizon_scale,
+                    jnp.log1p(init_horizons) / jnp.log1p(horizon_scale),
+                ],
+                axis=-1,
+            )
+            init_observations = jnp.concatenate([init_observations, horizon_features], axis=-1)
         params = model.init(
             init_rng,
-            example_batch[config['observations_key']],
+            init_observations,
             goals=init_goals,
             actions=example_batch[config['actions_key']],
-            times=example_batch[config['actions_key']][..., :1],
+            times=jnp.zeros_like(example_batch[config['actions_key']][..., :1]),
         )['params']
         network = TrainState.create(model, params, tx=optax.adam(config['lr']))
         config['action_dim'] = action_dim
+        config['seed'] = seed
         return cls(rng=rng, network=network, config=flax.core.FrozenDict(config))
 
 ##=========== TRAIN GOAL PROPOSER ===========##
@@ -297,6 +461,7 @@ jax.tree_util.tree_map(lambda x: x.shape, flow_agent.network.params)
 
 flow_loss_history = []
 velocity_mae_history = []
+endpoint_mse_history = []
 
 for step in range(1, config['num_train_steps'] + 1):
     batch = train_dataset.sample(config['batch_size'])
@@ -304,17 +469,20 @@ for step in range(1, config['num_train_steps'] + 1):
 
     flow_loss_history.append(float(info['flow_loss']))
     velocity_mae_history.append(float(info['velocity_mae']))
+    endpoint_mse_history.append(float(info['endpoint_mse']))
 
     if step == 1 or step % config['log_interval'] == 0:
         log_wandb(
             {
                 'goal_proposer/flow_loss': float(info['flow_loss']),
                 'goal_proposer/velocity_mae': float(info['velocity_mae']),
+                'goal_proposer/endpoint_mse': float(info['endpoint_mse']),
             },
             step=step,
         )
         print(
-            f"step={step:05d} flow_loss={flow_loss_history[-1]:.6f} velocity_mae={velocity_mae_history[-1]:.6f}"
+            f"step={step:05d} flow_loss={flow_loss_history[-1]:.6f} "
+            f"velocity_mae={velocity_mae_history[-1]:.6f} endpoint_mse={endpoint_mse_history[-1]:.6f}"
         )
 
 ##=========== UTILITIES ===========##

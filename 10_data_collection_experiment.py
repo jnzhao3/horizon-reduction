@@ -455,8 +455,8 @@ def dynamical_distance(ob, subgoals, goal, agent=dqc_agent):
     return gamma_to_subgoal, gamma_to_goal, ob_to_goal
 
 def sample_n(ob, goal, n, sample_rng, agent=flow_agent):
-    ob_xy = ob[:2]
-    obs = np.repeat(ob_xy[None], n, axis=0)
+    oracle_rep = np.asarray(to_oracle_reps(obs=np.asarray(ob)[None], env=env))[0]
+    obs = np.repeat(oracle_rep[None], n, axis=0)
     goals = np.repeat(goal[None], n, axis=0)
 
     return flow_agent.sample_actions(obs, goals, sample_rng)

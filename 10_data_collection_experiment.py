@@ -4,6 +4,8 @@ from __future__ import annotations
 
 PATH = '../../scratch/aorl2/2026-04-08-00/2026-04-08-00.b7bf8a914965d2ce2cdfd7704faa38b5fee704b874bc391d21e3b9137701759c/'
 
+DATASET_PATH = '../../scratch/data/humanoidmaze-large-navigate-v0/humanoidmaze-large-navigate-v0seed-0.npz'
+
 CKPT_NUM = 1000000
 
 ##=========== IMPORTS ===========##
@@ -82,6 +84,12 @@ wandb_run = wandb.init(
     settings=wandb.Settings(start_method='thread'),
 )
 
+wandb.alert(
+    title='Data collection run started',
+    text=f'Run "{run_name}" has started.',
+    level=wandb.AlertLevel.INFO,
+)
+
 
 def log_wandb(metrics, step=None):
     if wandb.run is not None:
@@ -136,8 +144,8 @@ dataset_class = {
     'CGCDataset': CGCDataset,
 }[dataset_class_name]
 
-dataset_path = os.path.join(PATH, 'data-100000.npz')
-dataset_npz = np.load(dataset_path)
+# dataset_path = os.path.join(PATH, 'data-100000.npz')
+dataset_npz = np.load(DATASET_PATH)
 train_dataset = dataset_class(Dataset.create(**dict(dataset_npz)), config=agent_config)
 
 # seed = saved_flags.get('seed', 0)

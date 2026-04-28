@@ -21,6 +21,8 @@ from agents import agents
 from agents.fql import get_config as get_fql_config
 from utils.datasets import Dataset, GCDataset, HGCDataset, CGCDataset, ReplayBuffer
 from wrappers.datafuncs_utils import make_env_and_datasets, to_oracle_reps
+from utils.evaluation import evaluate
+from utils.statistics import get_statistics_class
 from utils.networks import ActorVectorField
 
 from typing import Any
@@ -50,6 +52,9 @@ parser.add_argument('--num_additional_steps', type=int, default=1000000)
 parser.add_argument('--fql_train_steps', type=int, default=1000000)
 parser.add_argument('--fql_log_interval', type=int, default=1000)
 parser.add_argument('--fql_save_interval', type=int, default=100000)
+parser.add_argument('--fql_eval_interval', type=int, default=50000)
+parser.add_argument('--fql_eval_episodes', type=int, default=10)
+parser.add_argument('--data_log_interval', type=int, default=1000)
 parser.add_argument('--task_id', '--single_task_id', dest='task_id', type=int, default=1, help='1-indexed task id to collect data for.')
 parser.add_argument('--num_subgoals', type=int, default=128)
 parser.add_argument('--mult_factor', type=float, default=0.9)
@@ -63,6 +68,10 @@ parser.add_argument('--wandb_group', type=str, default='tuning_goal_proposer')
 parser.add_argument('--wandb_mode', type=str, default=os.environ.get('WANDB_MODE', 'online'))
 parser.add_argument('--save_dir', type=str, default='checkpoints/data_collection')
 parser.add_argument('--replay_buffer_name', type=str, default=None)
+parser.add_argument('--restore_path', type=str, default=PATH)
+parser.add_argument('--dataset_path', type=str, default=DATASET_PATH)
+parser.add_argument('--ckpt_num', type=int, default=CKPT_NUM)
+parser.add_argument('--env_name', type=str, default='humanoidmaze-large-navigate-v0')
 
 args = vars(parser.parse_args())
 
@@ -78,8 +87,8 @@ wandb_run = wandb.init(
     mode=args['wandb_mode'],
     config={
         **args,
-        'restore_path': PATH,
-        'restore_checkpoint': CKPT_NUM,
+        'restore_path': args['restore_path'],
+        'restore_checkpoint': args['ckpt_num'],
     },
     settings=wandb.Settings(start_method='thread'),
 )
@@ -121,7 +130,7 @@ def make_rollout_figure(all_cell_points, replay_buffer, subgoals_buffer, start, 
 
 ##=========== MAIN ===========##
 
-flags_path = os.path.join(PATH, 'flags.json')
+flags_path = os.path.join(args['restore_path'], 'flags.json')
 with open(flags_path, 'r') as f:
     saved_flags = json.load(f)
 
@@ -144,8 +153,8 @@ dataset_class = {
     'CGCDataset': CGCDataset,
 }[dataset_class_name]
 
-# dataset_path = os.path.join(PATH, 'data-100000.npz')
-dataset_npz = np.load(DATASET_PATH)
+# dataset_path = os.path.join(args['restore_path'], 'data-100000.npz')
+dataset_npz = np.load(args['dataset_path'])
 train_dataset = dataset_class(Dataset.create(**dict(dataset_npz)), config=agent_config)
 
 # seed = saved_flags.get('seed', 0)
@@ -153,9 +162,9 @@ seed = args['seed']
 example_batch = train_dataset.sample(1)
 
 first_agent = agents[agent_config['agent_name']].create(seed, example_batch, agent_config)
-first_agent = restore_agent(first_agent, PATH, CKPT_NUM)
+first_agent = restore_agent(first_agent, args['restore_path'], args['ckpt_num'])
 
-print(f'Restored first_agent from checkpoint {CKPT_NUM}')
+print(f'Restored first_agent from checkpoint {args["ckpt_num"]}')
 
 # %%
 dqc_agent = first_agent
@@ -173,9 +182,9 @@ all_cell_points = np.asarray(list(all_cells.keys()))
 print(saved_flags['env_name'])
 
 config = dict(
-    env_name='humanoidmaze-large-navigate-v0',
+    env_name=args['env_name'],
     # dataset_path='../../scratch/aorl2/YOUR_RUN_DIR/data-1000000.npz',
-    dataset_path='../../scratch/data/humanoidmaze-large-navigate-v0/humanoidmaze-large-navigate-v0seed-0.npz',
+    dataset_path=args['dataset_path'],
     observations_key='oracle_reps', # 'observations',
     goal_key='actor_goals',
     actions_key='low_actor_goals', #'actions',
@@ -499,6 +508,7 @@ print(f'initialized replay buffer with {source_dataset_size} transitions; capaci
 
 num_collected_steps = 0
 num_trajectories = 0
+collection_stats = get_statistics_class(config['env_name'])(env=env)
 
 with tqdm(total=args['num_additional_steps']) as pbar:
     ob, _ = env.reset(options=dict(task_id=cur_task_id))
@@ -553,7 +563,14 @@ with tqdm(total=args['num_additional_steps']) as pbar:
             env=env,
         )
         collection_replay_buffer.add_transition(transition)
+        collection_stats.log_episode(ob, action)
         pbar.update(1)
+
+        if args['data_log_interval'] > 0 and num_collected_steps % args['data_log_interval'] == 0:
+            log_wandb(
+                {f'data_collection/{k}': v for k, v in collection_stats.get_statistics().items()},
+                step=num_collected_steps,
+            )
 
         if np.linalg.norm(next_ob[:2] - subgoal) < 0.1:
             subgoal = None
@@ -647,11 +664,15 @@ for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
         metrics = {f'fql/training/{key}': float(value) for key, value in fql_info.items()}
         metrics['fql/replay_buffer_size'] = collection_replay_buffer.size
         log_wandb(metrics, step=fql_step_offset + fql_step)
-        print(
-            f"fql_step={fql_step:07d} "
-            f"critic_loss={metrics['fql/training/critic/critic_loss']:.6f} "
-            f"actor_loss={metrics['fql/training/actor/actor_loss']:.6f}"
+
+    if args['fql_eval_interval'] > 0 and fql_step % args['fql_eval_interval'] == 0:
+        eval_info, _, _ = evaluate(
+            agent=fql_agent,
+            env=env,
+            num_eval_episodes=args['fql_eval_episodes'],
         )
+        eval_metrics = {f'fql/eval/{k}': float(v) for k, v in eval_info.items()}
+        log_wandb(eval_metrics, step=fql_step_offset + fql_step)
 
     if args['fql_save_interval'] > 0 and fql_step % args['fql_save_interval'] == 0:
         save_agent(fql_agent, str(fql_save_dir), fql_step)

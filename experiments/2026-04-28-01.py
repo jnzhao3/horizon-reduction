@@ -13,7 +13,7 @@ parser.add_argument('--gpu_limit', type=int, default=100)
 args = parser.parse_args()
 
 
-run_group = '2026-04-28-02'
+run_group = '2026-04-28-03'
 output_dir = Path(__file__).resolve().parents[1] / 'sbatch'
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = '17_data_collection_giant.py'

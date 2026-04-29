@@ -22,6 +22,7 @@ import numpy as np
 from tqdm import tqdm
 from agents import agents
 from agents.fql import get_config as get_fql_config
+from agents.goal_proposer import GCFlowGoalProposerAgent
 from utils.datasets import Dataset, GCDataset, HGCDataset, CGCDataset, ReplayBuffer
 from wrappers.datafuncs_utils import make_env_and_datasets, to_oracle_reps
 from utils.evaluation import evaluate
@@ -231,6 +232,7 @@ config = dict(
     flow_steps=10,
     backup_horizon=25,
     goal_conditioned=False,
+    horizon_conditioned=True
 )
 
 env, base_train_dataset, val_dataset = make_env_and_datasets(
@@ -356,93 +358,6 @@ def _save_replay_buffer(buffer, save_dir, name):
     metadata_path.write_text(json.dumps(metadata, indent=2))
     return path
 
-class GCFlowGoalProposerAgent(flax.struct.PyTreeNode):
-    rng: Any
-    network: TrainState
-    config: Any = nonpytree_field()
-
-    def flow_loss(self, batch, grad_params=None, rng=None):
-        observations = batch[self.config['observations_key']]
-        goals = batch[self.config['goal_key']] if self.config['goal_conditioned'] else None
-        target_actions = batch[self.config['actions_key']]
-
-        batch_size, action_dim = target_actions.shape
-        rng = self.rng if rng is None else rng
-        x_rng, t_rng = jax.random.split(rng)
-
-        x_0 = jax.random.normal(x_rng, (batch_size, action_dim))
-        t = jax.random.uniform(t_rng, (batch_size, 1))
-        x_t = (1.0 - t) * x_0 + t * target_actions
-        vel = target_actions - x_0
-
-        pred_vel = self.network(
-            observations,
-            goals=goals,
-            actions=x_t,
-            times=t,
-            params=grad_params,
-        )
-        loss = jnp.mean(jnp.square(pred_vel - vel))
-        mae = jnp.mean(jnp.abs(pred_vel - vel))
-        return loss, {
-            'flow_loss': loss,
-            'velocity_mae': mae,
-        }
-
-    @jax.jit
-    def update(self, batch):
-        new_rng, rng = jax.random.split(self.rng)
-
-        def loss_fn(grad_params):
-            return self.flow_loss(batch, grad_params, rng=rng)
-
-        new_network, info = self.network.apply_loss_fn(loss_fn)
-        info['step'] = new_network.step
-        return self.replace(rng=new_rng, network=new_network), info
-
-    @jax.jit
-    def sample_actions(self, observations, goals, rng):
-        single_example = observations.ndim == 1
-        if not self.config['goal_conditioned']:
-            goals = None
-        if single_example:
-            observations = observations[None, ...]
-            if goals is not None:
-                goals = goals[None, ...]
-
-        x = jax.random.normal(rng, (observations.shape[0], self.config['action_dim']))
-
-        for i in range(self.config['flow_steps']):
-            t = jnp.full((observations.shape[0], 1), i / self.config['flow_steps'])
-            vels = self.network(observations, goals=goals, actions=x, times=t)
-            x = x + vels / self.config['flow_steps']
-
-        return x[0] if single_example else x
-
-    @classmethod
-    def create(cls, example_batch, config):
-        config = dict(config)
-        config.setdefault('goal_conditioned', True)
-        rng = jax.random.PRNGKey(args['seed'])
-        rng, init_rng = jax.random.split(rng)
-        action_dim = example_batch[config['actions_key']].shape[-1]
-        model = ActorVectorField(
-            hidden_dims=tuple(config['hidden_dims']),
-            action_dim=action_dim,
-            layer_norm=config['layer_norm'],
-        )
-        init_goals = example_batch[config['goal_key']] if config['goal_conditioned'] else None
-        params = model.init(
-            init_rng,
-            example_batch[config['observations_key']],
-            goals=init_goals,
-            actions=example_batch[config['actions_key']],
-            times=example_batch[config['actions_key']][..., :1],
-        )['params']
-        network = TrainState.create(model, params, tx=optax.adam(config['lr']))
-        config['action_dim'] = action_dim
-        return cls(rng=rng, network=network, config=flax.core.FrozenDict(config))
-
 ##=========== RESTORE GOAL PROPOSER ===========##
 
 example_batch = proposer_train_dataset.sample(1)
@@ -490,7 +405,10 @@ def dynamical_distance(ob, subgoals, goal, agent=dqc_agent):
 def sample_n(ob, n, sample_rng, goal=None, agent=flow_agent):
     oracle_rep = np.asarray(to_oracle_reps(obs=np.asarray(ob)[None], env=env))[0]
     obs = np.repeat(oracle_rep[None], n, axis=0)
-    goals = np.repeat(goal[None], n, axis=0)
+    if goal is not None:
+        goals = np.repeat(goal[None], n, axis=0)
+    else:
+        goals = goal
 
     return flow_agent.sample_actions(obs, goals, sample_rng)
 
@@ -553,12 +471,18 @@ with tqdm(total=args['num_additional_steps']) as pbar:
 
             mask = gamma_to_goal < ob_to_goal * args['mult_factor'] + args['additive_factor']
             if not np.any(mask):
-                print(f'no improving subgoal found after {num_collected_steps} additional steps')
-                break
+                # print(f'no improving subgoal found after {num_collected_steps} additional steps')
+                # break
+                rng, key = jax.random.split(rng)
+                subgoal = subgoals[jax.random.randint(key, (), 0, len(subgoals))]
 
-            filtered_subgoals = subgoals[mask]
-            filtered_scores = (args['A_B_factor'] * gamma_to_subgoal + args['B_C_factor'] * gamma_to_goal)[mask]
-            subgoal = filtered_subgoals[int(np.argmin(filtered_scores))]
+            else:
+
+                filtered_subgoals = subgoals[mask]
+                filtered_scores = (args['A_B_factor'] * gamma_to_subgoal + args['B_C_factor'] * gamma_to_goal)[mask]
+
+                subgoal = filtered_subgoals[int(np.argmin(filtered_scores))]
+
             subgoals_buffer.append(subgoal)
             to_subgoal = 0
 
@@ -663,6 +587,9 @@ replay_buffer_path = _save_replay_buffer(new_replay_buffer, args['save_dir'], re
 print(f'Saved replay buffer to {replay_buffer_path}')
 
 ##=========== TRAIN FQL ON COLLECTED REPLAY BUFFER ===========##
+
+if new_replay_buffer.size == 0:
+    raise RuntimeError('Replay buffer is empty — no data was collected. Check subgoal filtering or environment setup.')
 
 fql_config = _build_fql_config(config)
 idxs = np.random.randint(new_replay_buffer.size, size=1)

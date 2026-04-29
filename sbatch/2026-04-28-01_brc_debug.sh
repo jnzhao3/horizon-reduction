@@ -25,7 +25,7 @@ micromamba activate aorl
 
 
 declare -a commands=(
-  [1]='MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=50 --fql_train_steps=50 --num_subgoals=16 --mult_factor=0.9 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-28-01_debug'
+  [1]='MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=50 --fql_train_steps=50 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-28-01_debug'
 )
 
 parallel --delay 5s --linebuffer -j 1 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"

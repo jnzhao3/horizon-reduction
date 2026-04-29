@@ -80,8 +80,8 @@ def build_commands(debug):
                 steps_to_subgoal=25,
                 num_additional_steps=50,
                 fql_train_steps=50,
-                num_subgoals=16,
-                mult_factor=0.9,
+                num_subgoals=128,
+                mult_factor=1.0,
                 additive_factor=0.0,
                 a_b_factor=1.0,
                 b_c_factor=0.0,
@@ -90,13 +90,15 @@ def build_commands(debug):
         ]
     else:
         seeds = [1000, 1001]
+        task_ids = [1, 2]
+        horizons = [100, 1000, 2000]
         mult_factors = [0.9, 1.0]
 
         configs = []
-        for seed, mult_factor in product(seeds, mult_factors):
+        for seed, task_id, horizon, mult_factor in product(seeds, task_ids, horizons, mult_factors):
             configs.append(dict(
-                task_id=1,
-                subgoal_steps=100,
+                task_id=task_id,
+                subgoal_steps=horizon,
                 steps_to_subgoal=25,
                 num_additional_steps=1_000_000,
                 fql_train_steps=1_000_000,

@@ -13,17 +13,19 @@ parser.add_argument('--gpu_limit', type=int, default=100)
 args = parser.parse_args()
 
 
-run_group = '2026-04-28-00'
+run_group = '2026-04-28-01'
 output_dir = Path(__file__).resolve().parents[1] / 'sbatch'
 output_dir.mkdir(parents=True, exist_ok=True)
-run_file = '10_data_collection_experiment.py'
+run_file = '17_data_collection_giant.py'
 priority = 'high'
 
 RESTORE_PATH = '../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/'
-DATASET_PATH = '../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/humanoidmaze-giant-navigate-v0-003.npz'
+DATASET_DIR = '../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/'
+FLOW_RESTORE_PATH = 'checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100'
 
 ENV_NAME = 'humanoidmaze-giant-navigate-v0'
 CKPT_NUM = 1_000_000
+FLOW_CKPT_NUM = 5_000_000
 
 
 def make_command(
@@ -31,7 +33,6 @@ def make_command(
     task_id,
     subgoal_steps,
     steps_to_subgoal,
-    num_train_steps,
     num_additional_steps,
     fql_train_steps,
     num_subgoals,
@@ -44,13 +45,14 @@ def make_command(
 ):
     flag_args = {
         'restore_path': RESTORE_PATH,
-        'dataset_path': DATASET_PATH,
+        'dataset_dir': DATASET_DIR,
+        'flow_restore_path': FLOW_RESTORE_PATH,
+        'flow_ckpt_num': FLOW_CKPT_NUM,
         'env_name': ENV_NAME,
         'ckpt_num': CKPT_NUM,
         'task_id': task_id,
         'subgoal_steps': subgoal_steps,
         'steps_to_subgoal': steps_to_subgoal,
-        'num_train_steps': num_train_steps,
         'num_additional_steps': num_additional_steps,
         'fql_train_steps': fql_train_steps,
         'num_subgoals': num_subgoals,
@@ -76,7 +78,6 @@ def build_commands(debug):
                 task_id=1,
                 subgoal_steps=100,
                 steps_to_subgoal=25,
-                num_train_steps=50,
                 num_additional_steps=50,
                 fql_train_steps=50,
                 num_subgoals=16,
@@ -89,16 +90,14 @@ def build_commands(debug):
         ]
     else:
         seeds = [1000, 1001]
-        subgoal_steps_list = [100, 1000]
         mult_factors = [0.9, 1.0]
 
         configs = []
-        for seed, subgoal_steps, mult_factor in product(seeds, subgoal_steps_list, mult_factors):
+        for seed, mult_factor in product(seeds, mult_factors):
             configs.append(dict(
                 task_id=1,
-                subgoal_steps=subgoal_steps,
+                subgoal_steps=100,
                 steps_to_subgoal=25,
-                num_train_steps=3_000_000,
                 num_additional_steps=1_000_000,
                 fql_train_steps=1_000_000,
                 num_subgoals=128,

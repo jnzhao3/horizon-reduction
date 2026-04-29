@@ -84,24 +84,116 @@ def make_env_and_datasets(dataset_name, dataset_path, dataset_only=False, cur_en
     else:
         env.reset()
         return env, train_dataset, val_dataset
-    
-# def to_oracle_rep(obs, env):
-#     env_name = env.spec.id
-#     if 'maze' in env_name:
-#         # return obs[:2]
-#         return obs[:, :2]
-#     elif 'cube' in env_name:
-#         num_cubes = env.unwrapped.task_infos[0]['init_xyzs'].shape[0]
 
-#         ob = []
-#         for i in range(num_cubes):
-#             pos = get_block_i_pos_idxs(i, num_cubes)
-#             # ob.append(obs[pos])
-#             ob.append(obs[:, pos])
-#             # ob.append((ob_info[f'privileged/block_{i}_pos'] - xyz_center) * xyz_scaler)
-#         return jnp.concatenate(jnp.array(ob), axis=-1)
-#     else:
-#         assert False, 'not implemented'
+def make_ogbench_env_and_datasets(
+        dataset_name,
+        dataset_dir='~/.ogbench/data',
+        dataset_path=None,
+        dataset_size=None,
+        compact_dataset=False,
+        env_only=False,
+        dataset_only=False,
+        cur_env=None,
+        add_info=False,
+        **env_kwargs,
+):
+    """Make OGBench environment and load datasets.
+
+    Args:
+        dataset_name: Dataset name.
+        dataset_dir: Directory to save the datasets.
+        dataset_path: (Optional) Path to the dataset.
+        dataset_size: (Optional) Size of the dataset.
+        compact_dataset: Whether to return a compact dataset (True, without 'next_observations') or a regular dataset
+            (False, with 'next_observations').
+        env_only: Whether to return only the environment.
+        dataset_only: Whether to return only the dataset.
+        cur_env: Current environment (only used when `dataset_only` is True).
+        add_info: Whether to add observation information ('qpos', 'qvel', and 'button_states') to the datasets.
+        **env_kwargs: Keyword arguments to pass to the environment.
+    """
+    # Make environment.
+    splits = dataset_name.split('-')
+    dataset_add_info = add_info
+    env = cur_env
+    if 'singletask' in splits:
+        # Single-task environment.
+        pos = splits.index('singletask')
+        env_name = '-'.join(splits[: pos - 1] + splits[pos:])  # Remove the dataset type.
+        if not dataset_only:
+            env = gymnasium.make(env_name, **env_kwargs)
+        dataset_name = '-'.join(splits[:pos] + splits[-1:])  # Remove the words 'singletask' and 'task\d' (if exists).
+        dataset_add_info = True
+    elif 'oraclerep' in splits:
+        # Environment with oracle goal representations.
+        env_name = '-'.join(splits[:-3] + splits[-1:])  # Remove the dataset type and the word 'oraclerep'.
+        if not dataset_only:
+            env = gymnasium.make(env_name, use_oracle_rep=True, **env_kwargs)
+        dataset_name = '-'.join(splits[:-2] + splits[-1:])  # Remove the word 'oraclerep'.
+        dataset_add_info = True
+    else:
+        # Original, goal-conditioned environment.
+        env_name = '-'.join(splits[:-2] + splits[-1:])  # Remove the dataset type.
+        if not dataset_only:
+            env = gymnasium.make(env_name, **env_kwargs)
+
+    if env_only:
+        return env
+
+    # Load datasets.
+    if dataset_path is None:
+        dataset_dir = os.path.expanduser(dataset_dir)
+        ogbench.download_datasets([dataset_name], dataset_dir)
+        train_dataset_path = os.path.join(dataset_dir, f'{dataset_name}.npz')
+        val_dataset_path = os.path.join(dataset_dir, f'{dataset_name}-val.npz')
+    else:
+        train_dataset_path = dataset_path
+        val_dataset_path = dataset_path.replace('.npz', '-val.npz')
+
+    ob_dtype = np.uint8 if ('visual' in env_name or 'powderworld' in env_name) else np.float32
+    action_dtype = np.int32 if 'powderworld' in env_name else np.float32
+    train_dataset = load_dataset(
+        train_dataset_path,
+        ob_dtype=ob_dtype,
+        action_dtype=action_dtype,
+        compact_dataset=compact_dataset,
+        add_info=dataset_add_info,
+        dataset_size=dataset_size,
+    )
+    val_dataset = load_dataset(
+        val_dataset_path,
+        ob_dtype=ob_dtype,
+        action_dtype=action_dtype,
+        compact_dataset=compact_dataset,
+        add_info=dataset_add_info,
+        dataset_size=dataset_size,
+    )
+
+    if 'singletask' in splits:
+        # Add reward information to the datasets.
+        from ogbench.relabel_utils import relabel_dataset
+        relabel_dataset(env_name, env, train_dataset)
+        relabel_dataset(env_name, env, val_dataset)
+
+    if 'oraclerep' in splits:
+        # Add oracle goal representations to the datasets.
+        from ogbench.relabel_utils import add_oracle_reps
+        add_oracle_reps(env_name, env, train_dataset)
+        add_oracle_reps(env_name, env, val_dataset)
+
+    if not add_info:
+        # Remove information keys.
+        for k in ['qpos', 'qvel', 'button_states']:
+            if k in train_dataset:
+                del train_dataset[k]
+            if k in val_dataset:
+                del val_dataset[k]
+
+    if dataset_only:
+        return train_dataset, val_dataset
+    else:
+        return env, train_dataset, val_dataset
+
 
 def to_oracle_reps(obs, env=None, env_name=None):
     """Add oracle goal representations to the dataset.

@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# List of scripts to run
+scripts=(
+  "MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=1000000 --fql_train_steps=1000000 --num_subgoals=128 --mult_factor=0.9 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-28-01"
+  "MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=1000000 --fql_train_steps=1000000 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-28-01"
+  "MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=1000000 --fql_train_steps=1000000 --num_subgoals=128 --mult_factor=0.9 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1001 --wandb_group=2026-04-28-01"
+  "MUJOCO_GL=egl python 17_data_collection_giant.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/ --dataset_dir=../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/ --flow_restore_path=checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100 --flow_ckpt_num=5000000 --env_name=humanoidmaze-giant-navigate-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=100 --steps_to_subgoal=25 --num_additional_steps=1000000 --fql_train_steps=1000000 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1001 --wandb_group=2026-04-28-01"
+)
+
+# List of available GPU IDs (modify as needed)
+gpus=(0 1 2 4 5 6 7)
+
+num_gpus=${#gpus[@]}
+num_scripts=${#scripts[@]}
+
+# Store PIDs of background jobs
+pids=()
+
+# Function to handle Ctrl+C
+cleanup() {
+  echo "Terminating all running processes..."
+  for pid in "${pids[@]}"; do
+    kill "$pid" 2>/dev/null
+  done
+  wait
+  exit 1
+}
+
+# Trap SIGINT (Ctrl+C) and call cleanup
+trap cleanup SIGINT
+
+# Function to run scripts sequentially on a given GPU
+run_on_gpu() {
+  local gpu_id=$1
+  shift
+  local gpu_scripts=("$@")
+
+  for script in "${gpu_scripts[@]}"; do
+    echo "Running $script on GPU $gpu_id"
+    CUDA_VISIBLE_DEVICES=$gpu_id eval "$script" &
+    pids+=($!)  # Store PID of the process
+    wait ${pids[-1]}  # Wait for the process to finish before moving to the next
+  done
+}
+
+# Distribute scripts among GPUs
+for ((i=0; i<num_gpus; i++)); do
+  gpu_scripts=()
+
+  # Assign every nth script to this GPU
+  for ((j=i; j<num_scripts; j+=num_gpus)); do
+    gpu_scripts+=("${scripts[j]}")
+  done
+
+  if [ ${#gpu_scripts[@]} -gt 0 ]; then
+    run_on_gpu ${gpus[i]} "${gpu_scripts[@]}" &
+    pids+=($!)  # Store PID of background process
+  fi
+done
+
+wait  # Wait for all background jobs
+echo "All scripts finished."

@@ -53,7 +53,7 @@ class FQLAgent(flax.struct.PyTreeNode):
         else:
             batch_rewards = batch['rewards']
             batch_masks = batch['masks']
-        target_q = batch_rewards + self.config['discount'] * batch_masks * next_q
+        target_q = batch_rewards + (self.config['discount'] ** self.config['n_step']) * batch_masks * next_q
 
         if self.config['action_chunking']:
             q = self.network.select('critic')(batch['observations'], actions=batch_actions, params=grad_params)
@@ -411,6 +411,7 @@ def get_config():
             num_qs=10,
 
             best_of_n=1,
+            n_step=1,
             horizon_length=ml_collections.config_dict.placeholder(int), # Will be set
             action_chunking=False,                                      # Use Q-chunking or just n-step return
             encoder=ml_collections.config_dict.placeholder(str),  # Visual encoder name (None, 'impala_small', etc.).

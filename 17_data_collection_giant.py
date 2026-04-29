@@ -54,6 +54,8 @@ parser.add_argument('--steps_to_subgoal', type=int, default=25)
 parser.add_argument('--num_train_steps', type=int, default=3000000)
 parser.add_argument('--num_additional_steps', type=int, default=1000000)
 parser.add_argument('--fql_train_steps', type=int, default=1000000)
+parser.add_argument('--fql_n_step', type=int, default=1)
+parser.add_argument('--fql_discount', type=float, default=None, help='FQL discount; defaults to agent config discount if not set.')
 parser.add_argument('--fql_log_interval', type=int, default=1000)
 parser.add_argument('--fql_save_interval', type=int, default=100000)
 parser.add_argument('--fql_eval_interval', type=int, default=50000)
@@ -273,15 +275,16 @@ def _prepare_initial_replay_data(dataset):
     return data
 
 
-def _build_fql_config(config):
+def _build_fql_config(config, n_step=1, discount_override=None):
     fql_config = get_fql_config()
     fql_config['agent_name'] = 'fql'
     fql_config['batch_size'] = int(config['batch_size'])
-    fql_config['discount'] = float(config['discount'])
+    fql_config['discount'] = float(discount_override if discount_override is not None else config['discount'])
     fql_config['flow_steps'] = int(config['flow_steps'])
     fql_config['horizon_length'] = 1
     fql_config['action_chunking'] = False
     fql_config['encoder'] = None
+    fql_config['n_step'] = int(n_step)
     return fql_config
 
 
@@ -290,7 +293,30 @@ def _sample_replay_batch(buffer, batch_size):
     return buffer.sample(batch_size, idxs=idxs)
 
 
-def _proportional_sample(base_data, new_buffer, total_base_size, batch_size):
+def _n_step_from_dict(data, batch_size, n_step, discount):
+    """Compute n-step returns from a plain dict of arrays."""
+    size = len(data['observations'])
+    idxs = np.random.randint(size, size=batch_size)
+
+    rewards = data['rewards'][idxs].copy().astype(np.float64)
+    next_obs = data['next_observations'][idxs].copy().astype(np.float64)
+    cumulative_mask = data['masks'][idxs].copy().astype(np.float64)
+
+    for i in range(1, n_step):
+        step_idxs = np.minimum(idxs + i, size - 1)
+        rewards += (discount ** i) * cumulative_mask * data['rewards'][step_idxs]
+        alive = cumulative_mask[:, None]
+        next_obs = data['next_observations'][step_idxs] * alive + next_obs * (1.0 - alive)
+        cumulative_mask = cumulative_mask * data['masks'][step_idxs]
+
+    result = {k: v[idxs].copy() for k, v in data.items()}
+    result['rewards'] = rewards.astype(data['rewards'].dtype)
+    result['next_observations'] = next_obs.astype(data['next_observations'].dtype)
+    result['masks'] = cumulative_mask.astype(data['masks'].dtype)
+    return result
+
+
+def _proportional_sample(base_data, new_buffer, total_base_size, batch_size, n_step=1, discount=0.99):
     R = new_buffer.size
     total = total_base_size + R
     n_new = int(np.random.binomial(batch_size, R / total)) if R > 0 else 0
@@ -298,11 +324,18 @@ def _proportional_sample(base_data, new_buffer, total_base_size, batch_size):
 
     parts = []
     if n_base > 0:
-        idxs = np.random.randint(len(base_data['observations']), size=n_base)
-        parts.append({k: v[idxs] for k, v in base_data.items()})
+        if n_step > 1:
+            parts.append(_n_step_from_dict(base_data, n_base, n_step, discount))
+        else:
+            idxs = np.random.randint(len(base_data['observations']), size=n_base)
+            parts.append({k: v[idxs] for k, v in base_data.items()})
     if n_new > 0:
-        idxs = np.random.randint(R, size=n_new)
-        parts.append(new_buffer.sample(n_new, idxs=idxs))
+        if n_step > 1:
+            idxs = np.random.randint(R, size=n_new)
+            parts.append(new_buffer.sample_n_step(n_new, n_step, discount, idxs=idxs))
+        else:
+            idxs = np.random.randint(R, size=n_new)
+            parts.append(new_buffer.sample(n_new, idxs=idxs))
 
     if len(parts) == 1:
         return parts[0]
@@ -451,6 +484,8 @@ num_collected_steps = 0
 num_trajectories = 0
 num_subgoal_selections = 0
 num_random_subgoal_selections = 0
+random_subgoal_frac_ema = None
+ema_alpha = 0.1
 collection_stats = get_statistics_class(config['env_name'])(env=env)
 
 with tqdm(total=args['num_additional_steps']) as pbar:
@@ -520,10 +555,16 @@ with tqdm(total=args['num_additional_steps']) as pbar:
         pbar.update(1)
 
         if args['data_log_interval'] > 0 and num_collected_steps % args['data_log_interval'] == 0:
+            current_frac = num_random_subgoal_selections / num_subgoal_selections
+            if random_subgoal_frac_ema is None:
+                random_subgoal_frac_ema = current_frac
+            else:
+                random_subgoal_frac_ema = ema_alpha * current_frac + (1 - ema_alpha) * random_subgoal_frac_ema
             log_wandb(
                 {
                     **{f'data_collection/{k}': v for k, v in collection_stats.get_statistics().items()},
-                    'data_collection/random_subgoal_frac': num_random_subgoal_selections / num_subgoal_selections,
+                    'data_collection/random_subgoal_frac': current_frac,
+                    'data_collection/random_subgoal_frac_ema': random_subgoal_frac_ema,
                     'data_collection/mask_size': last_mask_size,
                 },
                 step=num_collected_steps,
@@ -566,12 +607,12 @@ with tqdm(total=args['num_additional_steps']) as pbar:
             del fig
             log_wandb(
                 {
-                    f'evaluation/task{cur_task_id}_success': success,
-                    f'evaluation/task{cur_task_id}_success_rate': task_success_rate,
-                    'evaluation/completed_trajectories': len(successes[task_key]),
+                    f'data_collection/task{cur_task_id}_success': success,
+                    f'data_collection/task{cur_task_id}_success_rate': task_success_rate,
+                    'data_collection/completed_trajectories': len(successes[task_key]),
                     'data_collection/additional_steps': num_collected_steps,
                     'data_collection/replay_buffer_size': new_replay_buffer.size,
-                    f'evaluation/task{cur_task_id}_rollout': rollout_image,
+                    f'data_collection/task{cur_task_id}_rollout': rollout_image,
                 },
                 step=rollout_step,
             )
@@ -586,8 +627,8 @@ with tqdm(total=args['num_additional_steps']) as pbar:
             to_subgoal = 0
 
 final_success_metrics = {
-    f'evaluation/final_task{cur_task_id}_success_rate': float(np.mean(successes[task_key])) if successes[task_key] else 0.0,
-    'evaluation/final_completed_trajectories': len(successes[task_key]),
+    f'data_collection/final_task{cur_task_id}_success_rate': float(np.mean(successes[task_key])) if successes[task_key] else 0.0,
+    'data_collection/final_completed_trajectories': len(successes[task_key]),
     'data_collection/final_additional_steps': num_collected_steps,
     'data_collection/final_replay_buffer_size': new_replay_buffer.size,
 }
@@ -604,7 +645,7 @@ print(f'Saved replay buffer to {replay_buffer_path}')
 if new_replay_buffer.size == 0:
     raise RuntimeError('Replay buffer is empty — no data was collected. Check subgoal filtering or environment setup.')
 
-fql_config = _build_fql_config(config)
+fql_config = _build_fql_config(config, n_step=args['fql_n_step'], discount_override=args['fql_discount'])
 idxs = np.random.randint(new_replay_buffer.size, size=1)
 fql_example_batch = new_replay_buffer.sample(1, idxs=idxs)
 fql_agent = agents['fql'].create(
@@ -619,16 +660,17 @@ fql_step_offset = config['num_train_steps'] + num_collected_steps + 1
 for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
     if args['dataset_replace_interval'] > 0 and fql_step % args['dataset_replace_interval'] == 0 and len(datasets) > 1:
         dataset_idx = (dataset_idx + 1) % len(datasets)
-        new_base_train, _ = make_env_and_datasets(
+        _, new_base_train, _ = make_env_and_datasets(
             config['env_name'],
             dataset_path=datasets[dataset_idx],
-            dataset_only=True,
+            # dataset_only=True,
             cur_env=env,
             use_oracle_reps=True,
         )
         current_base_data = _prepare_initial_replay_data(_dataset_mapping(new_base_train))
 
-    batch = _proportional_sample(current_base_data, new_replay_buffer, total_base_size, fql_config['batch_size'])
+    batch = _proportional_sample(current_base_data, new_replay_buffer, total_base_size, fql_config['batch_size'],
+                                 n_step=fql_config['n_step'], discount=fql_config['discount'])
     fql_agent, fql_info = fql_agent.update(batch)
 
     if fql_step == 1 or fql_step % args['fql_log_interval'] == 0:

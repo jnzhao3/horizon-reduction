@@ -63,6 +63,35 @@ class Dataset(FrozenDict):
         batch = self.get_subset(idxs)
         return batch
 
+    def sample_n_step(self, batch_size: int, n_step: int, discount: float, idxs=None):
+        """Sample a batch with n-step discounted returns.
+
+        rewards = sum_{i=0}^{n-1} discount^i * (prod_{j<i} mask_j) * r_i
+        masks   = prod_{i=0}^{n-1} mask_i  (0 if episode ends within n steps)
+        next_observations = obs at step n, frozen at terminal if episode ends earlier
+        """
+        if idxs is None:
+            idxs = self.get_random_idxs(batch_size)
+        base = self.get_subset(idxs)
+
+        rewards = base['rewards'].copy().astype(np.float64)
+        next_obs = base['next_observations'].copy().astype(np.float64)
+        cumulative_mask = base['masks'].copy().astype(np.float64)
+
+        for i in range(1, n_step):
+            step_idxs = np.minimum(idxs + i, self.size - 1)
+            step = self.get_subset(step_idxs)
+            rewards += (discount ** i) * cumulative_mask * step['rewards']
+            alive = cumulative_mask[:, None]
+            next_obs = step['next_observations'] * alive + next_obs * (1.0 - alive)
+            cumulative_mask = cumulative_mask * step['masks']
+
+        result = dict(base)
+        result['rewards'] = rewards.astype(base['rewards'].dtype)
+        result['next_observations'] = next_obs.astype(base['next_observations'].dtype)
+        result['masks'] = cumulative_mask.astype(base['masks'].dtype)
+        return result
+
     def sample_sequence(self, batch_size, sequence_length, discount):
         idxs = np.random.randint(self.size - sequence_length + 1, size=batch_size)
         

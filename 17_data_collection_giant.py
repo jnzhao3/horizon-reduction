@@ -448,6 +448,8 @@ print(f'loaded shard {dataset_idx}/{len(datasets)}: {single_dataset_size} transi
 
 num_collected_steps = 0
 num_trajectories = 0
+num_subgoal_selections = 0
+num_random_subgoal_selections = 0
 collection_stats = get_statistics_class(config['env_name'])(env=env)
 
 with tqdm(total=args['num_additional_steps']) as pbar:
@@ -456,6 +458,7 @@ with tqdm(total=args['num_additional_steps']) as pbar:
     subgoals_buffer = []
     subgoal = None
     to_subgoal = 0
+    last_mask_size = 0
 
     while num_collected_steps < args['num_additional_steps']:
         rollout_observations.append(ob.copy())
@@ -470,11 +473,14 @@ with tqdm(total=args['num_additional_steps']) as pbar:
             ob_to_goal = float(np.asarray(ob_to_goal).reshape(-1)[0])
 
             mask = gamma_to_goal < ob_to_goal * args['mult_factor'] + args['additive_factor']
+            last_mask_size = int(np.sum(mask))
+            num_subgoal_selections += 1
             if not np.any(mask):
                 # print(f'no improving subgoal found after {num_collected_steps} additional steps')
                 # break
                 rng, key = jax.random.split(rng)
                 subgoal = subgoals[jax.random.randint(key, (), 0, len(subgoals))]
+                num_random_subgoal_selections += 1
 
             else:
 
@@ -514,7 +520,11 @@ with tqdm(total=args['num_additional_steps']) as pbar:
 
         if args['data_log_interval'] > 0 and num_collected_steps % args['data_log_interval'] == 0:
             log_wandb(
-                {f'data_collection/{k}': v for k, v in collection_stats.get_statistics().items()},
+                {
+                    **{f'data_collection/{k}': v for k, v in collection_stats.get_statistics().items()},
+                    'data_collection/random_subgoal_frac': num_random_subgoal_selections / num_subgoal_selections,
+                    'data_collection/mask_size': last_mask_size,
+                },
                 step=num_collected_steps,
             )
 
@@ -601,9 +611,6 @@ fql_agent = agents['fql'].create(
     fql_config,
 )
 
-fql_save_dir = pathlib.Path(args['save_dir']) / 'fql'
-fql_save_dir.mkdir(parents=True, exist_ok=True)
-
 print(f'Training FQL for {args["fql_train_steps"]} steps from replay buffer')
 fql_step_offset = config['num_train_steps'] + num_collected_steps + 1
 for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
@@ -635,11 +642,5 @@ for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
         )
         eval_metrics = {f'fql/eval/{k}': float(v) for k, v in eval_info.items()}
         log_wandb(eval_metrics, step=fql_step_offset + fql_step)
-
-    if args['fql_save_interval'] > 0 and fql_step % args['fql_save_interval'] == 0:
-        save_agent(fql_agent, str(fql_save_dir), fql_step)
-
-save_agent(fql_agent, str(fql_save_dir), args['fql_train_steps'])
-print(f'Saved FQL agent to {fql_save_dir}')
 
 wandb.finish()

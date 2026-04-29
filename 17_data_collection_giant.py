@@ -109,6 +109,7 @@ wandb_run = wandb.init(
         'restore_path': args['restore_path'],
         'restore_checkpoint': args['ckpt_num'],
     },
+    dir='../../scratch/wandb',
     settings=wandb.Settings(start_method='thread'),
 )
 
@@ -560,6 +561,9 @@ with tqdm(total=args['num_additional_steps']) as pbar:
                     f'trajectory {num_trajectories}, success={success:.0f}'
                 ),
             )
+            rollout_image = wandb.Image(fig)
+            plt.close(fig)
+            del fig
             log_wandb(
                 {
                     f'evaluation/task{cur_task_id}_success': success,
@@ -567,11 +571,10 @@ with tqdm(total=args['num_additional_steps']) as pbar:
                     'evaluation/completed_trajectories': len(successes[task_key]),
                     'data_collection/additional_steps': num_collected_steps,
                     'data_collection/replay_buffer_size': new_replay_buffer.size,
-                    f'evaluation/task{cur_task_id}_rollout': wandb.Image(fig),
+                    f'evaluation/task{cur_task_id}_rollout': rollout_image,
                 },
                 step=rollout_step,
             )
-            plt.close(fig)
 
             if budget_exhausted:
                 break

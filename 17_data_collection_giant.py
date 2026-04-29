@@ -494,7 +494,7 @@ with tqdm(total=args['num_additional_steps']) as pbar:
             to_subgoal = 0
 
         action_rng, rng = jax.random.split(rng)
-        action = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng)
+        action = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng, best_of_n_override=2)
         action = np.asarray(np.clip(action, -1, 1))
         to_subgoal += 1
         next_ob, reward, terminated, truncated, info = env.step(action)

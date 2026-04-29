@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# List of scripts to run
+scripts=(
+  "MUJOCO_GL=egl python 18_data_collection_cube.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33728300.0.33728299.1.20260425_014426/ --dataset_path=../../scratch/data/cube-quadruple-play-v0/cube-quadruple-play-v0.npz --flow_restore_path=checkpoints/cube_quadruple_horizon_subgoal_proposer --flow_ckpt_num=1050000 --env_name=cube-quadruple-play-oraclerep-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=250 --steps_to_subgoal=25 --num_additional_steps=50 --fql_train_steps=50 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-29-00_debug"
+)
+
+# List of available GPU IDs (modify as needed)
+gpus=(0 1 2 4 5 6 7)
+
+num_gpus=${#gpus[@]}
+num_scripts=${#scripts[@]}
+
+# Store PIDs of background jobs
+pids=()
+
+# Function to handle Ctrl+C
+cleanup() {
+  echo "Terminating all running processes..."
+  for pid in "${pids[@]}"; do
+    kill "$pid" 2>/dev/null
+  done
+  wait
+  exit 1
+}
+
+# Trap SIGINT (Ctrl+C) and call cleanup
+trap cleanup SIGINT
+
+# Function to run scripts sequentially on a given GPU
+run_on_gpu() {
+  local gpu_id=$1
+  shift
+  local gpu_scripts=("$@")
+
+  for script in "${gpu_scripts[@]}"; do
+    echo "Running $script on GPU $gpu_id"
+    CUDA_VISIBLE_DEVICES=$gpu_id eval "$script" &
+    pids+=($!)  # Store PID of the process
+    wait ${pids[-1]}  # Wait for the process to finish before moving to the next
+  done
+}
+
+# Distribute scripts among GPUs
+for ((i=0; i<num_gpus; i++)); do
+  gpu_scripts=()
+
+  # Assign every nth script to this GPU
+  for ((j=i; j<num_scripts; j+=num_gpus)); do
+    gpu_scripts+=("${scripts[j]}")
+  done
+
+  if [ ${#gpu_scripts[@]} -gt 0 ]; then
+    run_on_gpu ${gpus[i]} "${gpu_scripts[@]}" &
+    pids+=($!)  # Store PID of background process
+  fi
+done
+
+wait  # Wait for all background jobs
+echo "All scripts finished."

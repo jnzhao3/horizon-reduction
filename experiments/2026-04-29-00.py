@@ -21,7 +21,7 @@ priority = 'high'
 
 RESTORE_PATH = '../../scratch/dqc-reproduce/sd100001s_33728300.0.33728299.1.20260425_014426/'
 DATASET_PATH = '../../scratch/data/cube-quadruple-play-v0/cube-quadruple-play-v0.npz'
-FLOW_RESTORE_PATH = 'checkpoints/cube_quadruple_horizon_subgoal_proposer'
+FLOW_RESTORE_PATH = '../../scratch/checkpoints/cube_quadruple_horizon_subgoal_proposer'
 
 ENV_NAME = 'cube-quadruple-play-oraclerep-v0'
 CKPT_NUM = 1_000_000

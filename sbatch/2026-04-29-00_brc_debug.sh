@@ -25,7 +25,7 @@ micromamba activate aorl
 
 
 declare -a commands=(
-  [1]='MUJOCO_GL=egl python 18_data_collection_cube.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33728300.0.33728299.1.20260425_014426/ --dataset_path=../../scratch/data/cube-quadruple-play-v0/cube-quadruple-play-v0.npz --flow_restore_path=checkpoints/cube_quadruple_horizon_subgoal_proposer --flow_ckpt_num=1050000 --env_name=cube-quadruple-play-oraclerep-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=250 --steps_to_subgoal=25 --num_additional_steps=50 --fql_train_steps=50 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-29-00_debug'
+  [1]='MUJOCO_GL=egl python 18_data_collection_cube.py --restore_path=../../scratch/dqc-reproduce/sd100001s_33728300.0.33728299.1.20260425_014426/ --dataset_path=../../scratch/data/cube-quadruple-play-v0/cube-quadruple-play-v0.npz --flow_restore_path=../../scratch/checkpoints/cube_quadruple_horizon_subgoal_proposer --flow_ckpt_num=1050000 --env_name=cube-quadruple-play-oraclerep-v0 --ckpt_num=1000000 --task_id=1 --subgoal_steps=250 --steps_to_subgoal=25 --num_additional_steps=50 --fql_train_steps=50 --num_subgoals=128 --mult_factor=1.0 --additive_factor=0.0 --A_B_factor=1.0 --B_C_factor=0.0 --seed=1000 --wandb_group=2026-04-29-00_debug'
 )
 
 parallel --delay 5s --linebuffer -j 1 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"

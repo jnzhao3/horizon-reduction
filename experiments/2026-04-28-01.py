@@ -21,7 +21,7 @@ priority = 'high'
 
 RESTORE_PATH = '../../scratch/dqc-reproduce/sd100001s_33415523.0.33415522.1.20260415_020458/'
 DATASET_DIR = '../../scratch/data/humanoidmaze-giant-navigate-v0/humanoidmaze-giant-navigate-100m-v0/'
-FLOW_RESTORE_PATH = 'checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100'
+FLOW_RESTORE_PATH = '../../scratch/checkpoints/gc_flow_goal_proposer/observation_horizon_h1_100'
 
 ENV_NAME = 'humanoidmaze-giant-navigate-v0'
 CKPT_NUM = 1_000_000

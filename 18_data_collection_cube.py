@@ -662,10 +662,13 @@ final_success_metrics = {
 }
 log_wandb(final_success_metrics, step=num_collected_steps + 1)
 
+fql_save_dir = pathlib.Path(args['save_dir']) / args['wandb_group'] / run_name
+fql_save_dir.mkdir(parents=True, exist_ok=True)
+
 replay_buffer_name = args['replay_buffer_name']
 if replay_buffer_name is None:
     replay_buffer_name = f'data-task{cur_task_id}-{new_replay_buffer.size}.npz'
-replay_buffer_path = _save_replay_buffer(new_replay_buffer, args['save_dir'], replay_buffer_name)
+replay_buffer_path = _save_replay_buffer(new_replay_buffer, fql_save_dir, replay_buffer_name)
 print(f'Saved replay buffer to {replay_buffer_path}')
 
 ##=========== TRAIN FQL ON COLLECTED REPLAY BUFFER ===========##

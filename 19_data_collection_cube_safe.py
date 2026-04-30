@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import pathlib
+import signal
 import time
 
 import numpy as np
@@ -58,6 +59,7 @@ parser.add_argument('--fql_discount', type=float, default=None, help='FQL discou
 parser.add_argument('--fql_alpha', type=float, default=None, help='FQL BC coefficient; defaults to agent config alpha if not set.')
 parser.add_argument('--fql_log_interval', type=int, default=1000)
 parser.add_argument('--fql_save_interval', type=int, default=100000)
+parser.add_argument('--checkpoint_interval', type=int, default=50000, help='Save data collection checkpoint every N steps.')
 parser.add_argument('--fql_eval_interval', type=int, default=50000)
 parser.add_argument('--fql_eval_episodes', type=int, default=10)
 parser.add_argument('--data_log_interval', type=int, default=1000)
@@ -100,11 +102,23 @@ run_name = (
     f"cube_goal_proposer_sg{args['subgoal_steps']}_train{args['num_train_steps']}_"
     f"mf{args['mult_factor']}_af{args['additive_factor']}_seed{args['seed']}"
 )
+
+# Checkpoint directory is deterministic across preemptions.
+ckpt_dir = pathlib.Path(args['save_dir']) / args['wandb_group'] / run_name
+ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+# Persist wandb run ID so we resume the same run after preemption.
+wandb_id_file = ckpt_dir / 'wandb_run_id.txt'
+wandb_run_id = wandb_id_file.read_text().strip() if wandb_id_file.exists() else wandb.util.generate_id()
+wandb_id_file.write_text(wandb_run_id)
+
 wandb_run = wandb.init(
     project=args['wandb_project'],
     entity=args['wandb_entity'],
     group=args['wandb_group'],
     name=run_name,
+    id=wandb_run_id,
+    resume='allow',
     mode=args['wandb_mode'],
     config={
         **args,
@@ -118,8 +132,7 @@ wandb_run = wandb.init(
 wandb.alert(
     title='Data collection run started',
     text=f'Run "{run_name}" has started.',
-    level=wandb.AlertLevel.INFO,
-)
+    level=wandb.AlertLevel.INFO,)
 
 
 def log_wandb(metrics, step=None):
@@ -401,6 +414,29 @@ def _save_replay_buffer(buffer, save_dir, name):
     metadata_path.write_text(json.dumps(metadata, indent=2))
     return path
 
+def _save_collection_checkpoint(buffer, meta):
+    """Atomically save replay buffer + metadata for preemption recovery."""
+    tmp = ckpt_dir / 'collection_checkpoint.npz.tmp'
+    dst = ckpt_dir / 'collection_checkpoint.npz'
+    data = {key: np.asarray(value[:buffer.size]) for key, value in buffer.items()}
+    np.savez(tmp, **data)
+    tmp.rename(dst)
+    (ckpt_dir / 'collection_meta.json').write_text(json.dumps(meta))
+
+
+def _load_collection_checkpoint(example_transition, capacity):
+    """Load a previously saved collection checkpoint, or return None."""
+    dst = ckpt_dir / 'collection_checkpoint.npz'
+    meta_path = ckpt_dir / 'collection_meta.json'
+    if not dst.exists() or not meta_path.exists():
+        return None, None
+    rb_data = {k: np.asarray(v) for k, v in np.load(dst).items()}
+    buffer = ReplayBuffer.create_from_initial_dataset(rb_data, size=capacity)
+    meta = json.loads(meta_path.read_text())
+    print(f'Resumed data collection from checkpoint: {buffer.size} transitions, step {meta["num_collected_steps"]}')
+    return buffer, meta
+
+
 ##=========== RESTORE GOAL PROPOSER ===========##
 
 proposer_example_batch = proposer_train_dataset.sample(1)
@@ -492,21 +528,53 @@ single_dataset_size = len(current_base_data['observations'])
 total_base_size = single_dataset_size * len(datasets)
 
 example_transition = {k: v[0] for k, v in current_base_data.items()}
-new_replay_buffer = ReplayBuffer.create(example_transition, args['num_additional_steps'])
+
+# Attempt to resume from a prior checkpoint.
+new_replay_buffer, ckpt_meta = _load_collection_checkpoint(
+    example_transition, args['num_additional_steps']
+)
+if ckpt_meta is not None:
+    num_collected_steps = ckpt_meta['num_collected_steps']
+    num_trajectories = ckpt_meta['num_trajectories']
+    num_subgoal_selections = ckpt_meta['num_subgoal_selections']
+    num_random_subgoal_selections = ckpt_meta['num_random_subgoal_selections']
+    successes[task_key] = ckpt_meta['successes']
+    rng = jax.random.PRNGKey(ckpt_meta['rng_state'])
+else:
+    new_replay_buffer = ReplayBuffer.create(example_transition, args['num_additional_steps'])
+    num_collected_steps = 0
+    num_trajectories = 0
+    num_subgoal_selections = 0
+    num_random_subgoal_selections = 0
+    successes[task_key] = []
 
 subgoals_buffers[task_key] = []
-successes[task_key] = []
+collection_stats = get_statistics_class(config['env_name'])(env=env)
 
 print(f'running task {cur_task_id} ({task_info["task_name"]})')
 print(f'dataset: {single_dataset_size} transitions; new buffer capacity={args["num_additional_steps"]}')
+print(f'starting from step {num_collected_steps}')
 
-num_collected_steps = 0
-num_trajectories = 0
-num_subgoal_selections = 0
-num_random_subgoal_selections = 0
-collection_stats = get_statistics_class(config['env_name'])(env=env)
+_preempted = False
 
-with tqdm(total=args['num_additional_steps']) as pbar:
+def _sigterm_handler(signum, frame):
+    global _preempted
+    _preempted = True
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
+signal.signal(signal.SIGUSR1, _sigterm_handler)
+
+def _make_collection_meta():
+    return {
+        'num_collected_steps': num_collected_steps,
+        'num_trajectories': num_trajectories,
+        'num_subgoal_selections': num_subgoal_selections,
+        'num_random_subgoal_selections': num_random_subgoal_selections,
+        'successes': list(successes[task_key]),
+        'rng_state': int(rng[1]),
+    }
+
+with tqdm(total=args['num_additional_steps'], initial=num_collected_steps) as pbar:
     ob, info = env.reset(options=dict(task_info=task_info))
     goal_oracle = np.asarray(info['goal'], dtype=np.float32)
     rollout_oracles = []
@@ -596,6 +664,15 @@ with tqdm(total=args['num_additional_steps']) as pbar:
                 },
                 step=num_collected_steps,
             )
+
+        if args['checkpoint_interval'] > 0 and num_collected_steps % args['checkpoint_interval'] == 0:
+            _save_collection_checkpoint(new_replay_buffer, _make_collection_meta())
+
+        if _preempted:
+            print(f'SIGTERM received — saving checkpoint at step {num_collected_steps} and exiting.')
+            _save_collection_checkpoint(new_replay_buffer, _make_collection_meta())
+            wandb.finish()
+            raise SystemExit(0)
 
         if np.linalg.norm(obs_to_oracle_rep(ob) - subgoal) < 0.3:
             subgoal = None
@@ -687,9 +764,18 @@ fql_agent = agents['fql'].create(
     fql_config,
 )
 
-print(f'Training FQL for {args["fql_train_steps"]} steps from replay buffer')
+# Resume FQL from checkpoint if available.
+fql_ckpt_dir = ckpt_dir / 'fql'
+fql_step_file = ckpt_dir / 'fql_step.txt'
+fql_start_step = 1
+if fql_step_file.exists():
+    fql_start_step = int(fql_step_file.read_text().strip()) + 1
+    fql_agent = restore_agent(fql_agent, str(fql_ckpt_dir), fql_start_step - 1)
+    print(f'Resumed FQL from checkpoint at step {fql_start_step - 1}')
+
+print(f'Training FQL for {args["fql_train_steps"]} steps from replay buffer (starting at step {fql_start_step})')
 fql_step_offset = num_collected_steps + 1
-for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
+for fql_step in tqdm(range(fql_start_step, args['fql_train_steps'] + 1)):
     if args['dataset_replace_interval'] > 0 and fql_step % args['dataset_replace_interval'] == 0 and len(datasets) > 1:
         dataset_idx = (dataset_idx + 1) % len(datasets)
         _, new_base_train, _ = make_env_and_datasets(
@@ -721,5 +807,18 @@ for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
         )
         eval_metrics = {f'fql/eval/{k}': float(v) for k, v in eval_info.items()}
         log_wandb(eval_metrics, step=fql_step_offset + fql_step)
+
+    if args['fql_save_interval'] > 0 and fql_step % args['fql_save_interval'] == 0:
+        fql_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        save_agent(fql_agent, str(fql_ckpt_dir), fql_step)
+        fql_step_file.write_text(str(fql_step))
+
+    if _preempted:
+        print(f'SIGTERM received — saving FQL checkpoint at step {fql_step} and exiting.')
+        fql_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        save_agent(fql_agent, str(fql_ckpt_dir), fql_step)
+        fql_step_file.write_text(str(fql_step))
+        wandb.finish()
+        raise SystemExit(0)
 
 wandb.finish()

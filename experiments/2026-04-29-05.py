@@ -17,7 +17,7 @@ run_group = '2026-04-29-05'
 output_dir = Path(__file__).resolve().parents[1] / 'sbatch'
 output_dir.mkdir(parents=True, exist_ok=True)
 run_file = '19_data_collection_cube_safe.py'
-priority = 'normal'
+priority = 'low'
 
 RESTORE_PATH = '../../scratch/2026-04-27-dqc/dqc/2026-04-27-dqc/sd200002s_33839966.0.33839966.2.20260427_210028/'
 DATASET_PATH = '../../scratch/data/cube-quadruple-play-v0/cube-quadruple-play-v0.npz'

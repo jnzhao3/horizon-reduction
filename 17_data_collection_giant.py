@@ -56,6 +56,7 @@ parser.add_argument('--num_additional_steps', type=int, default=1000000)
 parser.add_argument('--fql_train_steps', type=int, default=1000000)
 parser.add_argument('--fql_n_step', type=int, default=1)
 parser.add_argument('--fql_discount', type=float, default=None, help='FQL discount; defaults to agent config discount if not set.')
+parser.add_argument('--fql_alpha', type=float, default=None, help='FQL BC coefficient; defaults to agent config alpha if not set.')
 parser.add_argument('--fql_log_interval', type=int, default=1000)
 parser.add_argument('--fql_save_interval', type=int, default=100000)
 parser.add_argument('--fql_eval_interval', type=int, default=50000)
@@ -72,7 +73,7 @@ parser.add_argument('--wandb_project', type=str, default='aorl2')
 parser.add_argument('--wandb_entity', type=str, default='moma1234')
 parser.add_argument('--wandb_group', type=str, default='giant_data_collection')
 parser.add_argument('--wandb_mode', type=str, default=os.environ.get('WANDB_MODE', 'online'))
-parser.add_argument('--save_dir', type=str, default='../../scratch/checkpoints/data_collection_giant')
+parser.add_argument('--save_dir', type=str, default='../../scratch/aorl2')
 parser.add_argument('--replay_buffer_name', type=str, default=None)
 parser.add_argument('--restore_path', type=str, default=PATH)
 parser.add_argument('--dataset_path', type=str, default=DATASET_PATH)
@@ -275,7 +276,7 @@ def _prepare_initial_replay_data(dataset):
     return data
 
 
-def _build_fql_config(config, n_step=1, discount_override=None):
+def _build_fql_config(config, n_step=1, discount_override=None, alpha_override=None):
     fql_config = get_fql_config()
     fql_config['agent_name'] = 'fql'
     fql_config['batch_size'] = int(config['batch_size'])
@@ -285,6 +286,9 @@ def _build_fql_config(config, n_step=1, discount_override=None):
     fql_config['action_chunking'] = False
     fql_config['encoder'] = None
     fql_config['n_step'] = int(n_step)
+    if alpha_override is not None:
+        fql_config['alpha'] = float(alpha_override)
+
     return fql_config
 
 
@@ -567,7 +571,7 @@ with tqdm(total=args['num_additional_steps']) as pbar:
                     'data_collection/random_subgoal_frac_ema': random_subgoal_frac_ema,
                     'data_collection/mask_size': last_mask_size,
                 },
-                step=num_collected_steps,
+                step=config['num_train_steps'] + num_collected_steps,
             )
 
         if np.linalg.norm(next_ob[:2] - subgoal) < 0.1:
@@ -645,7 +649,7 @@ print(f'Saved replay buffer to {replay_buffer_path}')
 if new_replay_buffer.size == 0:
     raise RuntimeError('Replay buffer is empty — no data was collected. Check subgoal filtering or environment setup.')
 
-fql_config = _build_fql_config(config, n_step=args['fql_n_step'], discount_override=args['fql_discount'])
+fql_config = _build_fql_config(config, n_step=args['fql_n_step'], discount_override=args['fql_discount'], alpha_override=args['fql_alpha'])
 idxs = np.random.randint(new_replay_buffer.size, size=1)
 fql_example_batch = new_replay_buffer.sample(1, idxs=idxs)
 fql_agent = agents['fql'].create(
@@ -655,7 +659,11 @@ fql_agent = agents['fql'].create(
     fql_config,
 )
 
+fql_save_dir = pathlib.Path(args['save_dir']) / args['wandb_group'] / run_name
+fql_save_dir.mkdir(parents=True, exist_ok=True)
+
 print(f'Training FQL for {args["fql_train_steps"]} steps from replay buffer')
+print(f'Saving FQL checkpoints to {fql_save_dir}')
 fql_step_offset = config['num_train_steps'] + num_collected_steps + 1
 for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
     if args['dataset_replace_interval'] > 0 and fql_step % args['dataset_replace_interval'] == 0 and len(datasets) > 1:
@@ -687,5 +695,8 @@ for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
         )
         eval_metrics = {f'fql/eval/{k}': float(v) for k, v in eval_info.items()}
         log_wandb(eval_metrics, step=fql_step_offset + fql_step)
+
+    if args['fql_save_interval'] > 0 and fql_step % args['fql_save_interval'] == 0:
+        save_agent(fql_agent, str(fql_save_dir), fql_step)
 
 wandb.finish()

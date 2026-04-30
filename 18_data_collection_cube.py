@@ -271,13 +271,56 @@ def _build_fql_config(config):
     fql_config['batch_size'] = int(config['batch_size'])
     fql_config['discount'] = float(config['discount'])
     fql_config['flow_steps'] = int(config['flow_steps'])
-    fql_config['horizon_length'] = 1
-    fql_config['action_chunking'] = False
+    fql_config['horizon_length'] = int(config['backup_horizon'])
+    fql_config['action_chunking'] = True
     fql_config['encoder'] = None
+    fql_config['n_step'] = 1
     return fql_config
 
 
-def _proportional_sample(base_data, new_buffer, total_base_size, batch_size):
+def _sample_sequence_from_dict(data, batch_size, sequence_length, discount):
+    """Sample action-chunked sequences from a plain dict of arrays."""
+    size = len(data['observations'])
+    idxs = np.random.randint(size - sequence_length + 1, size=batch_size)
+
+    obs_dim = data['observations'].shape[-1]
+    act_dim = data['actions'].shape[-1]
+
+    rewards = np.zeros((batch_size, sequence_length), dtype=np.float32)
+    masks = np.ones((batch_size, sequence_length), dtype=np.float32)
+    terminals = np.zeros((batch_size, sequence_length), dtype=np.float32)
+    actions = np.zeros((batch_size, sequence_length, act_dim), dtype=data['actions'].dtype)
+    next_obs = np.zeros((batch_size, sequence_length, obs_dim), dtype=data['observations'].dtype)
+
+    for i in range(sequence_length):
+        cur_idxs = idxs + i
+        actions[:, i, :] = data['actions'][cur_idxs]
+        if i == 0:
+            rewards[:, 0] = data['rewards'][cur_idxs]
+            masks[:, 0] = data['masks'][cur_idxs]
+            terminals[:, 0] = data['terminals'][cur_idxs]
+            next_obs[:, 0, :] = data['next_observations'][cur_idxs]
+        else:
+            valid_i = 1.0 - terminals[:, i - 1]
+            rewards[:, i] = rewards[:, i - 1] + data['rewards'][cur_idxs] * (discount ** i) * valid_i
+            masks[:, i] = np.minimum(masks[:, i - 1], data['masks'][cur_idxs]) * valid_i + masks[:, i - 1] * (1.0 - valid_i)
+            terminals[:, i] = np.maximum(terminals[:, i - 1], data['terminals'][cur_idxs])
+            next_obs[:, i, :] = (
+                data['next_observations'][cur_idxs] * valid_i[:, None]
+                + next_obs[:, i - 1, :] * (1.0 - valid_i[:, None])
+            )
+
+    result = {k: v[idxs].copy() for k, v in data.items()}
+    result['observations'] = data['observations'][idxs].copy()
+    result['actions'] = actions
+    result['rewards'] = rewards
+    result['masks'] = masks
+    result['next_observations'] = next_obs
+    return result
+
+
+def _proportional_sample(base_data, new_buffer, total_base_size, batch_size,
+                         action_chunking=False, horizon_length=1, discount=0.99):
     R = new_buffer.size
     total = total_base_size + R
     n_new = int(np.random.binomial(batch_size, R / total)) if R > 0 else 0
@@ -285,11 +328,17 @@ def _proportional_sample(base_data, new_buffer, total_base_size, batch_size):
 
     parts = []
     if n_base > 0:
-        idxs = np.random.randint(len(base_data['observations']), size=n_base)
-        parts.append({k: v[idxs] for k, v in base_data.items()})
+        if action_chunking:
+            parts.append(_sample_sequence_from_dict(base_data, n_base, horizon_length, discount))
+        else:
+            idxs = np.random.randint(len(base_data['observations']), size=n_base)
+            parts.append({k: v[idxs] for k, v in base_data.items()})
     if n_new > 0:
-        idxs = np.random.randint(R, size=n_new)
-        parts.append(new_buffer.sample(n_new, idxs=idxs))
+        if action_chunking:
+            parts.append(new_buffer.sample_sequence(n_new, horizon_length, discount))
+        else:
+            idxs = np.random.randint(R, size=n_new)
+            parts.append(new_buffer.sample(n_new, idxs=idxs))
 
     if len(parts) == 1:
         return parts[0]
@@ -597,8 +646,11 @@ if new_replay_buffer.size == 0:
     raise RuntimeError('Replay buffer is empty — no data was collected. Check subgoal filtering or environment setup.')
 
 fql_config = _build_fql_config(config)
-idxs = np.random.randint(new_replay_buffer.size, size=1)
-fql_example_batch = new_replay_buffer.sample(1, idxs=idxs)
+if fql_config['action_chunking']:
+    fql_example_batch = new_replay_buffer.sample_sequence(1, fql_config['horizon_length'], fql_config['discount'])
+else:
+    idxs = np.random.randint(new_replay_buffer.size, size=1)
+    fql_example_batch = new_replay_buffer.sample(1, idxs=idxs)
 fql_agent = agents['fql'].create(
     args['seed'],
     fql_example_batch['observations'],
@@ -620,7 +672,10 @@ for fql_step in tqdm(range(1, args['fql_train_steps'] + 1)):
         )
         current_base_data = _prepare_initial_replay_data(_dataset_mapping(new_base_train))
 
-    batch = _proportional_sample(current_base_data, new_replay_buffer, total_base_size, fql_config['batch_size'])
+    batch = _proportional_sample(current_base_data, new_replay_buffer, total_base_size, fql_config['batch_size'],
+                                 action_chunking=fql_config['action_chunking'],
+                                 horizon_length=fql_config['horizon_length'],
+                                 discount=fql_config['discount'])
     fql_agent, fql_info = fql_agent.update(batch)
 
     if fql_step == 1 or fql_step % args['fql_log_interval'] == 0:

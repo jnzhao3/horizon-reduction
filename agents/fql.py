@@ -53,7 +53,8 @@ class FQLAgent(flax.struct.PyTreeNode):
         else:
             batch_rewards = batch['rewards']
             batch_masks = batch['masks']
-        target_q = batch_rewards + (self.config['discount'] ** self.config['n_step']) * batch_masks * next_q
+        n = self.config['horizon_length'] if self.config['action_chunking'] else self.config['n_step']
+        target_q = batch_rewards + (self.config['discount'] ** n) * batch_masks * next_q
 
         if self.config['action_chunking']:
             q = self.network.select('critic')(batch['observations'], actions=batch_actions, params=grad_params)

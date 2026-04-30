@@ -612,7 +612,7 @@ with tqdm(total=args['num_additional_steps'], initial=num_collected_steps) as pb
 
         # cube DQC uses policy_chunk_size=5; iterate over the action chunk
         action_rng, rng = jax.random.split(rng)
-        action_chunk = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng)
+        action_chunk = dqc_agent.sample_actions(observations=ob, goals=subgoal, seed=action_rng, best_of_n_override=2)
         action_chunk = np.asarray(action_chunk)
         action_dim = env.action_space.shape[0]
         if action_chunk.ndim == 1 and action_chunk.shape[0] > action_dim:
